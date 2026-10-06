@@ -49,6 +49,15 @@ import {
 } from "../core/tuning.mjs";
 import { activeCaloriesFromPower } from "../core/units.mjs";
 
+// Speed the rider advances at: trainer-reported while pedaling (always wins),
+// else the simulation slider. Callers that care whether anything is actually
+// moving combine it with isMoving().
+export function currentSpeedKph() {
+  return state.pedaling && Number.isFinite(state.trainerSpeedKph)
+    ? state.trainerSpeedKph
+    : Number(els.speedInput.value);
+}
+
 export function isMoving() {
   return state.simulating || state.pedaling;
 }
@@ -210,9 +219,7 @@ function tick(now) {
   state.lastTick = now;
   const currentGrade = gradeAt(state.route, state.progressMeters);
   if (state.demoModeActive) advanceDemoTelemetry(elapsedSeconds, currentGrade, 0, { recordHistory: false });
-  const speedKph = state.pedaling && Number.isFinite(state.trainerSpeedKph)
-    ? state.trainerSpeedKph
-    : Number(els.speedInput.value);
+  const speedKph = currentSpeedKph();
   const metersPerSecond = speedKph / 3.6;
   const totalDistance = routeTotalDistance(state.route);
 

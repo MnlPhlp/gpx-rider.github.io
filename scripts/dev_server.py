@@ -13,14 +13,15 @@ it strips the request's conditional headers (so it never returns a 304), drops
 the response validators (`Last-Modified`/`ETag`), and adds `no-store`. Every
 reload therefore fetches fresh bytes.
 
-It also injects a *local* Google Maps API key into `app/config.mjs` on the fly
-(never touching the file on disk) so the map works in local dev without pasting
-a key in Settings every time — the same base64 substitution the deploy workflow
-does, but sourced from the developer's machine, not a repository secret. The key
-comes from the `MAPS_API_KEY` environment variable, or a `.maps-api-key` file at
-the repo root; both are gitignored / never committed. With neither present the
-committed empty default is served unchanged, so the app just falls back to
-asking for a key in Settings exactly as before.
+It also injects *local* deploy values into `app/config.mjs` on the fly (never
+touching the file on disk) so the map — and the opt-in street imagery — work in
+local dev without pasting keys in Settings every time: the same base64
+substitution the deploy workflow does, but sourced from the developer's machine,
+not repository secrets. The Google Maps key comes from the `MAPS_API_KEY`
+environment variable or a `.maps-api-key` file at the repo root, the Mapillary
+client token from `MAPILLARY_TOKEN` or `.mapillary-token`; all are gitignored /
+never committed. With none present the committed empty defaults are served
+unchanged, so the app just falls back to asking in Settings exactly as before.
 
 Usage: python3 scripts/dev_server.py [PORT] [HOST]   (defaults: 5173 127.0.0.1)
 Run it from the repo root; the landing page is then at http://HOST:PORT/app/
@@ -40,7 +41,11 @@ DEFAULT_PORT = 5173
 DEFAULT_HOST = "127.0.0.1"
 
 CONFIG_URL_SUFFIX = "/app/config.mjs"
-KEY_LINE_PATTERN = re.compile(rb'const DEPLOYED_MAPS_API_KEY_B64 = ".*";')
+# (constant in config.mjs, environment variable, gitignored file at the repo root)
+DEPLOY_VALUES = (
+    ("DEPLOYED_MAPS_API_KEY_B64", "MAPS_API_KEY", ".maps-api-key"),
+    ("DEPLOYED_MAPILLARY_TOKEN_B64", "MAPILLARY_TOKEN", ".mapillary-token"),
+)
 
 # Content types forced by file extension, independent of the OS MIME registry.
 # Python's http.server falls back to the platform registry for unknown types,
@@ -58,15 +63,15 @@ FORCED_CONTENT_TYPES = {
 }
 
 
-def local_maps_api_key():
-    """A Maps key from the local machine only — env var wins, else the
-    gitignored .maps-api-key file. Returns "" when neither is set."""
-    key = os.environ.get("MAPS_API_KEY", "").strip()
-    if key:
-        return key
-    key_file = pathlib.Path(".maps-api-key")
-    if key_file.exists():
-        return key_file.read_text().strip()
+def local_deploy_value(env_var, file_name):
+    """A deploy value from the local machine only — the env var wins, else the
+    gitignored file at the repo root. Returns "" when neither is set."""
+    value = os.environ.get(env_var, "").strip()
+    if value:
+        return value
+    value_file = pathlib.Path(file_name)
+    if value_file.exists():
+        return value_file.read_text().strip()
     return ""
 
 
@@ -92,21 +97,24 @@ class NoCacheHandler(SimpleHTTPRequestHandler):
         return super().send_head()
 
     def _config_with_local_key(self):
-        # Serve app/config.mjs with the local key baked into the same line the
-        # deploy workflow rewrites. Returns None (fall back to the file as-is)
-        # when there's no local key or the file doesn't look as expected.
-        key = local_maps_api_key()
-        if not key:
+        # Serve app/config.mjs with the local values baked into the same lines
+        # the deploy workflow rewrites. Returns None (fall back to the file
+        # as-is) when no local value is set or the file doesn't look as expected.
+        values = [(const_name, local_deploy_value(env_var, file_name)) for const_name, env_var, file_name in DEPLOY_VALUES]
+        if not any(value for _, value in values):
             return None
         try:
-            source = pathlib.Path(self.translate_path(self.path)).read_bytes()
+            updated = pathlib.Path(self.translate_path(self.path)).read_bytes()
         except OSError:
             return None
-        encoded = base64.b64encode(key.encode()).decode()
-        replacement = f'const DEPLOYED_MAPS_API_KEY_B64 = "{encoded}";'.encode()
-        updated, count = KEY_LINE_PATTERN.subn(replacement, source)
-        if count != 1:
-            return None
+        for const_name, value in values:
+            if not value:
+                continue
+            encoded = base64.b64encode(value.encode()).decode()
+            pattern = re.compile(rb'const ' + const_name.encode() + rb' = ".*";')
+            updated, count = pattern.subn(f'const {const_name} = "{encoded}";'.encode(), updated)
+            if count != 1:
+                return None
         self.send_response(200)
         self.send_header("Content-Type", "text/javascript; charset=utf-8")
         self.send_header("Content-Length", str(len(updated)))

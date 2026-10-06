@@ -39,6 +39,7 @@ It is built for people who want to:
 - **Climb and segment focus** — inspect detected climbs or drag across the elevation profile to select any custom route segment.
 - **Adaptive ride HUD** — use the same standard ride screen in windowed and fullscreen views, with sensor meters appearing only when their data is available.
 - **Cinematic camera system** — switch among follow, first-person, static, orbit, fly-by, fly-over, and satellite views with physically flown transitions between the route overview and rider.
+- **Street imagery in first person (opt-in)** — ride through real street-level photos from [Mapillary](https://www.mapillary.com/) wherever the route has coverage, with the 3D view filling the gaps, a coverage strip under the elevation profile, and a guided way to capture and publish your own ride so you can ride it back.
 - **FIT export** — record rides locally and download standards-compliant `.fit` files classified as virtual cycling activities.
 - **Simulation and demo modes** — preview a route at a chosen speed, or drive the complete UI with synthetic trainer and heart-rate data.
 - **Recording view** — frame the map at an exact recording size and choose which HUD components appear in the recording.
@@ -57,6 +58,14 @@ It is built for people who want to:
 6. Use **Download .FIT** whenever you want to export the recorded ride.
 
 Not on the bike? Use the Simulation card's **Start** button to preview the route at a fixed speed. Real pedaling automatically stops a running simulation and takes priority.
+
+### Street imagery
+
+Settings › **Street imagery** turns on real street-level photos in the first-person camera. GPX Rider looks up Mapillary images along the loaded route, keeps the ones that sit on the road and face the way you ride, and shows them as you move; where there are none, the 3D view takes over again. The settings panel and the elevation profile show how much of the route is covered.
+
+- The hosted demo ships with a Mapillary client token; self-hosters paste a free one from the [Mapillary developer dashboard](https://www.mapillary.com/dashboard/developers) (or bake it in, see below). A token saved in Settings always wins.
+- Coverage is crowd-sourced and uneven: popular passes and cities are well covered, remote roads often are not, and photo age and season vary. Images are a few to tens of meters apart, so it is a fast slideshow with animated transitions, not video.
+- **Ride it yourself, then ride it back.** The **Contribute your own imagery…** guide walks through capturing a real ride (the Mapillary phone app on a bar mount, or an action camera plus a timestamped GPX), uploading it, checking the route's coverage once Mapillary has processed it, and enabling street imagery. Enter your Mapillary username so your own sequences are preferred where several riders photographed the same road.
 
 ## Route intelligence
 
@@ -177,6 +186,19 @@ Keeping the camera above the ground needs to know where the ground actually is �
 
 The pure tile math (Web Mercator coordinates, Terrarium decode) lives in [`app/map/terrain-tiles-math.mjs`](app/map/terrain-tiles-math.mjs) and is unit-tested; the fetch/decode/cache machinery is in [`app/map/terrain-tiles.mjs`](app/map/terrain-tiles.mjs). Every knob — the tile source, zoom, cache size, and attribution — is documented under `terrain_tiles` in [`app/core/tuning.yaml`](app/core/tuning.yaml).
 
+### Street imagery frame matching
+
+Showing the right street photo for a moving rider is a matching problem, not a lookup — Mapillary knows where its images are, not where they sit along *your* route or which way you are riding. GPX Rider solves it client-side and provider-agnostically:
+
+- **Grid-cell scan with subdivide-on-cap.** The route is covered with cells of a fixed global lon/lat grid (keys are stable, so responses cache across routes and sessions), fetched lookahead-first from the rider's position. A cell that comes back at the API's result cap is treated as truncated and split into quadrants, so dense cities are never silently under-sampled.
+- **Spatial-grid projection onto the route.** Every image is projected perpendicularly onto the nearest route segment, found through buckets of segments in a local equirectangular frame — O(images), not O(images × points), which matters for city routes with tens of thousands of candidates.
+- **Heading-usability filter.** A photo taken riding the other way shows the wrong road, so only 360° images and images facing within a tolerance of the local direction of travel are kept; panoramas are turned to look along the route when shown.
+- **Scored selection with midpoint hysteresis.** Within a reach window around the rider the frame with the lowest score wins — along-route distance minus bonuses for staying in the current capture sequence, for the rider's own uploads, and for panoramas — and playback only steps to a frame at least a minimum distance ahead (about 10 m, Mapillary's own in-sequence spacing — dense areas carry a frame every meter or two, which would otherwise churn), once the rider has covered half the way to it, so two neighbors never flicker and the cadence scales with riding speed. The viewer's own animated sequence transitions carry the forward motion between photos; an experimental approach zoom exists as a tunable but is off by default because it read as a step back at each cut.
+- **Coverage runs.** Frames closer than a gap threshold merge into covered runs that drive the coverage percentage, the longest-gap figure, and the strip under the elevation profile.
+- **Opaque frame references.** The index never interprets what a frame *is* — today a Mapillary image id, later a timestamp into the rider's own ride video — and a source/renderer contract keeps the provider swappable without touching selection or fallback.
+
+The pure index and selection logic lives in [`app/street-view/frame-index.mjs`](app/street-view/frame-index.mjs), the pure cell geometry in [`app/street-view/scan-boxes.mjs`](app/street-view/scan-boxes.mjs); both are unit-tested, as is the Graph API source ([`app/street-view/mapillary-source.mjs`](app/street-view/mapillary-source.mjs)) against a fake fetch. Every knob is documented under `street_imagery` in [`app/core/tuning.yaml`](app/core/tuning.yaml).
+
 ### Two trainer protocols behind one interface
 
 Most modern smart trainers speak the standard Fitness Machine Service (FTMS) over Bluetooth, but the wheel-on Tacx trainers (Flow, Vortex, Bushido, Genius) predate it and expose no FTMS service at all — they tunnel ANT+ FE-C over a vendor Bluetooth service instead. GPX Rider supports both from a single pairing flow:
@@ -214,7 +236,7 @@ make run
 - the landing page at `http://127.0.0.1:5173/app/`;
 - the application at `http://127.0.0.1:5173/app/app.html`.
 
-Local development needs a Google Maps API key with the **Maps JavaScript API** and **Photorealistic 3D Maps** enabled. Save the key as a single line in the gitignored `.maps-api-key` file at the repository root, then run `make run`. The development server injects it into the served `app/config.mjs` response without modifying the file on disk. The `MAPS_API_KEY` environment variable is also supported and takes precedence.
+Local development needs a Google Maps API key with the **Maps JavaScript API** and **Photorealistic 3D Maps** enabled. Save the key as a single line in the gitignored `.maps-api-key` file at the repository root, then run `make run`. The development server injects it into the served `app/config.mjs` response without modifying the file on disk. The `MAPS_API_KEY` environment variable is also supported and takes precedence. A Mapillary client token for the street imagery feature works the same way: `.mapillary-token` at the repository root, or the `MAPILLARY_TOKEN` environment variable.
 
 Run the tests with:
 
@@ -241,6 +263,8 @@ The included [GitHub Pages workflow](.github/workflows/deploy-pages.yml) publish
 
 Self-hosted deployments can request a visitor-supplied Maps key. It is stored in that browser and sent only to Google Maps.
 
+The workflow also bakes in two optional repository secrets: `MAPS_API_KEY` (a referrer-restricted Maps key) and `MAPILLARY_TOKEN` (a Mapillary client token so visitors get street imagery without pasting their own). Without them, visitors supply their own in Settings.
+
 ## Data and privacy
 
 GPX Rider has no user accounts and no application backend. Routes, settings, ride progress, sensor preferences, and recorded samples remain in browser storage. Trainer and heart-rate communication happens directly between the browser and the selected Bluetooth devices.
@@ -248,6 +272,8 @@ GPX Rider has no user accounts and no application backend. Routes, settings, rid
 The hosted application's Maps key is restricted to the GPX Rider domain. Self-hosted installations use their own key.
 
 When **online terrain** is enabled (on by default), the app anonymously fetches free public elevation tiles from the Mapzen/AWS Open Data bucket to sharpen the terrain-aware camera. The requests carry no keys, accounts, or ride data — only the map tile coordinates for the area you are riding, which Google's own 3D imagery already streams for the same area. It can be turned off in Settings › Rendering, in which case the camera falls back to route-only elevation and no tiles are ever requested.
+
+When **street imagery** is enabled (off by default), the app asks Mapillary (owned by Meta) for images in the map grid cells the loaded route passes through, and the viewer fetches the images it shows — using the site's or your own client token. No ride data, settings, or account information is sent, and nothing is requested at all while the switch is off. Imagery is © its Mapillary contributors under CC BY-SA 4.0; the viewer credits each image.
 
 ## Browser, hardware, and limitations
 
@@ -260,6 +286,7 @@ When **online terrain** is enabled (on by default), the app anonymously fetches 
 - Calories are derived from power, or taken from FTMS Expended Energy when an FTMS trainer reports it (FE-C trainers report no energy field, so calories come from power).
 - Heart rate comes from a paired strap or, as a fallback, the trainer's own heart-rate field.
 - Terrain avoidance uses the route's own elevation as a free offline floor and, when online terrain is enabled, augments it with free public Mapzen/AWS terrain tiles. With online terrain off (or before tiles load), it works best where the route itself follows the hillside.
+- Street imagery depends on what Mapillary's contributors have uploaded: coverage is partial (often excellent on famous climbs and in cities, sparse on remote roads), photos vary in age, season, and camera, and gaps show the 3D view. The viewer library is loaded on demand from a pinned CDN URL only when the feature is on.
 
 ## Tested hardware
 

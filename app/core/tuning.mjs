@@ -168,6 +168,11 @@ export const TERRAIN_TILE_SIZE = req("terrain_tiles", "tile_size");
 export const TERRAIN_TILE_MAX_CACHE = req("terrain_tiles", "max_cache_tiles");
 export const TERRAIN_TILE_ATTRIBUTION = req("terrain_tiles", "attribution");
 
+// Street-level imagery (Mapillary): the switch default, plus the whole
+// section as one object for the street-view/ modules.
+export const DEFAULT_STREET_IMAGERY_ENABLED = req("street_imagery", "enabled");
+export const STREET_IMAGERY = req("street_imagery");
+
 // Rider beacon
 export const DEFAULT_BEACON_ENABLED = req("rider_beacon", "enabled");
 export const DEFAULT_BEACON_DIAMETER_METERS = req("rider_beacon", "diameter_meters");

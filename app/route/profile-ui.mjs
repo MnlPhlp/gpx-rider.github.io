@@ -16,6 +16,7 @@ import { els, state } from "../core/state.mjs";
 import {
   PROFILE_HISTORY_SAMPLE_LIMIT,
   PROFILE_SEGMENT_SELECTION_DRAG_PIXELS,
+  STREET_IMAGERY,
 } from "../core/tuning.mjs";
 
 export function renderProfile(progress = currentRideProgress()) {
@@ -39,7 +40,20 @@ export function renderProfile(progress = currentRideProgress()) {
     distanceUnits: state.distanceUnits,
     historySamples: currentProfileHistorySamples(),
     visibleSeries: state.profileSeries,
+    coverage: streetImageryCoverageStrip(),
   });
+}
+
+// Covered runs for the loaded route only (the index is keyed on route
+// identity, so a stale summary from a previous route is never drawn).
+function streetImageryCoverageStrip() {
+  const si = state.streetImagery;
+  if (!si.coverage || si.indexRoute !== state.route) return null;
+  return {
+    segments: si.coverage.segments,
+    heightPx: STREET_IMAGERY.profile_strip_px,
+    color: STREET_IMAGERY.profile_strip_color,
+  };
 }
 
 function currentProfileHistorySamples() {

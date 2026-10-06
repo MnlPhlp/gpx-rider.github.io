@@ -47,12 +47,13 @@ pages, `styles.css`, `gallery.json`, and `assets/` stay at the app root.
 | `app/route/` | Route processing | `route.mjs` (GPX parsing, enrichment, interpolation, grade; tested), `climb-signal.mjs` (pure resample/smooth/rolling-grade elevation-signal helpers behind climb detection; tested), `climbs.mjs` (sustained-climb detection — the fatigue-pressure state machine built on `climb-signal.mjs`; tested), `difficulty.mjs` (classification from distance + gain; tested), `route-load.mjs` (GPX file/URL intake, `applyGpxText` route-swap sequence, once-per-load route overview), `climbs-ui.mjs` (climb/segment focus, live climb status, the HUD climb/segment banner), `profile.mjs` (elevation profile canvas drawing + hit-testing), `profile-ui.mjs` (profile rendering + hover/seek/drag-select wiring) |
 | `app/ride/` | Ride execution & telemetry | `movement.mjs` (the movement loop `tick`, simulation toggle, pedaling hysteresis, reset, seek), `eta.mjs` (flat-equivalent pace ETA model; tested), `ride-ui.mjs` (`updateRideUi`, the per-tick UI driver), `telemetry-ui.mjs` (trainer/HR callbacks, HR source resolution, calories/timer, telemetry readouts), `training-zones.mjs` (HR/power zones, fullscreen zone meters, zone summaries), `recorder.mjs` (ride sample bucket), `recording-ui.mjs` (FIT card, download, clear), `fit.mjs` (FIT encoder — must stay sport=cycling, sub_sport=virtual_activity; tested) |
 | `app/trainer/` | Hardware | `trainer.mjs` (trainer pairing + reconnect + protocol detection; FTMS over Web Bluetooth: write queue, Indoor Bike Data; routes to the FE-C backend for Tacx), `trainer-fec.mjs` (Tacx FE-C over BLE backend: telemetry notifications + Track Resistance grade writes on service 6e40fec1), `fec.mjs` (pure ANT+ FE-C codec: ANT framing + page 16/25/51 encode/decode — tested), `heartrate.mjs` (BLE heart-rate strap, service 0x180D) |
-| `app/settings/` | Settings | `settings-ui.mjs` (settings dialog shell + every non-camera panel: units, rider profile, display & HUD toggles, rendering, screenshot settings) |
+| `app/settings/` | Settings | `settings-ui.mjs` (settings dialog shell + the non-camera panels: units, rider profile, display & HUD toggles, rendering, screenshot settings — the camera panel lives in `camera/camera-ui.mjs`, the street imagery panel in `street-view/street-view-settings.mjs`) |
 | `app/storage/` | Storage & persistence | `storage.mjs` (IndexedDB behind a sync cache, localStorage fallback + migration; tested), `persistence.mjs` (`restoreSettings`/`saveSettings`, `restoreSavedRide`/`saveRide` — the one deliberately cross-cutting module) |
 | `app/hud/` | Shared HUD layout | `screen-manager.mjs` (**the central HUD layout manager** — see "Map HUD layout" below), `map-hud.mjs` (clock chip, HUD tile order/visibility + drag-reorder, tile layout, dock collapse, fullscreen enter/exit, map screenshot action), `theater-mode.mjs` (exact-size recording viewport) |
 | `app/gallery-ui/` | Gallery | `gallery.mjs` (fullscreen ride-gallery overlay; cards from `app/gallery.json`, per-card on-demand 3D preview via each route's `metadata.json#previewCamera`), `gallery-export.mjs` (Export to gallery card: metadata.json snippet with the live camera, clipboard copy) |
 | `app/landing/` | Landing page | `landing.mjs` (public landing page behavior: hero replay over a live 3D map with a faked HUD, then summit orbit, loops; knobs in `LANDING_HERO`, `core/tuning.mjs`), `landing-route.mjs` (static route data the hero replays — marketing data, not app runtime) |
 | `app/demo/` | Demo mode | `demo.mjs` (pure synthetic trainer/HR ride model; tested), `demo-mode.mjs` (demo mode UI: drives the ride from the model, demo chip sync) |
+| `app/street-view/` | Street imagery | `frame-index.mjs` (pure route-distance index of imagery frames: spatial-grid projection onto the route, heading-usability filter, `frameForProgress` selection with midpoint hysteresis + dwell, coverage runs; tested), `scan-boxes.mjs` (pure: global-grid search cells along a route, lookahead-first order, quadrant subdivision, Mapillary entity → candidate; tested), `mapillary-source.mjs` (Graph API scan of a route's cells → candidates; fetch pool, subdivide-on-cap, abort, per-cell session cache, typed token error; tested with a fake fetch), `mapillary-renderer.mjs` (lazy-loads the pinned MapillaryJS viewer, one Viewer instance, shows a frame / turns panos along the route), `street-view-ui.mjs` (coordinator: layer + fade, HUD chip, per-route scan keyed on route identity, own refresh loop, `state.streetImagery`), `street-view-settings.mjs` (settings tab sync/apply + coverage/token readouts), `contribute-ui.mjs` (the "Contribute your own imagery" guide dialog). `route/gpx-export.mjs` (pure GPX serializer; tested) backs its GPX download. |
 
 ## Code organization system — how to keep this codebase clean
 
@@ -757,6 +758,40 @@ in place).
   location the map didn't already request. The open-data attribution
   (`TERRAIN_TILE_ATTRIBUTION`) is shown at the foot of the setup control pane
   (`#terrainAttribution`) while the feature is on.
+- **Street imagery (Mapillary) in first person.** Opt-in (`street_imagery.enabled`,
+  default off; Settings › Street imagery). While `state.streetImageryEnabled`
+  and a token resolve (`resolveMapillaryToken`: the user's saved token, else
+  `deployedMapillaryToken()` from `config.mjs`), `street-view-ui.mjs` scans the
+  loaded route's grid cells through the Mapillary Graph API, projects every
+  image onto the route (`frame-index.mjs`, pure, tested) keeping only frames
+  within `max_offset_meters` that are 360° or face within
+  `heading_tolerance_degrees` of the direction of travel, and — only while
+  `isFirstPersonCameraView()` — shows the picked frame in a full-viewport
+  layer (`#streetImageryLayer`, z-index 5, under the HUD regions, pointer-events
+  off so drags still reach the 3D map) that cross-fades back to the 3D view in
+  gaps. Selection (`frameForProgress`) scores frames by along-route distance
+  minus bonuses (same sequence, the user's own uploads via `mapillaryUsername`,
+  panos) and only advances to a frame at least `min_advance_meters` ahead
+  (dense areas have a frame every 1–2 m; stepping ~10 m keeps the cadence
+  speed-proportional instead of churning), past `switch_hysteresis_fraction`
+  of the way to it and after `min_dwell_ms`. The renderer's
+  `setApproach(fraction)` (zoom into the current photo toward
+  `approach_zoom_max`) exists but defaults to off: tested, it read as a
+  step back at every cut, so the viewer's own transition carries the motion. It runs on its **own** `refresh_ms` setTimeout loop (same
+  reason as camera-debug: a manual drag at rest leaves first person without
+  running `updateRideUi`) and detects route swaps by identity
+  (`state.route !== streetImagery.indexRoute`), so route-load has no hook. The
+  HUD chip (center column, weight 30) carries `data-state` live/gap/status; the
+  elevation profile gets a coverage strip (`drawProfile`'s `coverage` option).
+  Provider-agnostic by design: a *source* `{ scanRoute }` fills the index with
+  candidates whose `ref` is opaque, a *renderer* `{ mount, showFrame, setVisible,
+  resize, unmount }` shows them — the contracts are documented in the module
+  headers so a future "replay my own ride video" source (timestamped track →
+  frames with `ref = { timeSeconds }`, a `<video>` renderer paced by `speedMps`)
+  plugs in without touching selection, fallback or coverage. MapillaryJS stamps
+  `position: relative` onto its container, so the renderer mounts into a child
+  of the layer, never the layer itself. Privacy: nothing is requested while the
+  switch is off; while on, the route's grid cells go to Mapillary (Meta).
 
 ## Persistence
 
@@ -773,7 +808,8 @@ deliberate exception is `gpx-rider:maps-api-key`, which stays in
 localStorage (handled directly in `map-init.mjs`): saving it reloads the page
 immediately, and only a synchronous write is guaranteed to survive that.
 Never send any of these anywhere; the app's privacy story is "everything
-stays in the browser".
+stays in the browser" — the only outbound data are the opt-in map-area
+requests of online terrain and street imagery, never ride or settings records.
 
 ## Deployed Maps API key
 
@@ -791,7 +827,12 @@ deployed key is present, `startApp()` hides the whole API-key section in
 Settings (`els.apiKeySection`) instead of showing an empty field nobody
 needs. Never widen the referrer restriction beyond the exact deployed
 origin, and don't add a second, unrestricted key anywhere in the client
-bundle. The landing page (`landing.mjs`) resolves the key the same way —
+bundle. The same script bakes the optional `MAPILLARY_TOKEN` secret into
+`config.mjs` (`deployedMapillaryToken()`) for the opt-in street imagery — that
+one is a Mapillary *client* token, public by design like a browser Maps key, so
+the rule above is about Maps keys, not it; a token saved in Settings overrides
+it. Both values share one `(constant, env var, local file)` table in
+`inject_maps_api_key.py` and `dev_server.py`. The landing page (`landing.mjs`) resolves the key the same way —
 visitor's saved key, else the baked-in `config.mjs` key — so it lights up on
 the live demo and in local dev without any separate wiring.
 
@@ -806,7 +847,8 @@ never be committed. `scripts/dev_server.py` injects a *local* key into the
 the same base64 substitution as the deploy script. The key is read from the
 `MAPS_API_KEY` environment variable, or from a `.maps-api-key` file at the repo
 root — both are gitignored (`.maps-api-key` is in `.gitignore`) and must stay
-out of git. With neither present the served config stays empty and the app
+out of git. The Mapillary client token works the same way (`MAPILLARY_TOKEN`
+or `.mapillary-token`). With neither present the served config stays empty and the app
 falls back to the Settings "paste your key" prompt, exactly as in a fork.
 **If you're set up on a machine where `.maps-api-key` is missing (a fresh
 clone — the file is intentionally not in git), ask the user for their Google

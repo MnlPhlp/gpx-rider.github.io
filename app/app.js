@@ -70,6 +70,16 @@ import {
 } from "./settings/settings-ui.mjs";
 import { els, state, updateProgressLabel } from "./core/state.mjs";
 import { initStorage } from "./storage/storage.mjs";
+import {
+  checkRouteCoverage,
+  closeContributeDialog,
+  closeContributeDialogOnBackdrop,
+  downloadRouteGpx,
+  enableStreetImageryAndRide,
+  openContributeDialog,
+} from "./street-view/contribute-ui.mjs";
+import { saveMapillaryToken, updateStreetImagerySettingsFromControls } from "./street-view/street-view-settings.mjs";
+import { initStreetImagery } from "./street-view/street-view-ui.mjs";
 import { registerClimbBannerHud } from "./route/climbs-ui.mjs";
 import { initScreenManager } from "./hud/screen-manager.mjs";
 import {
@@ -133,6 +143,7 @@ async function startApp() {
   registerDemoBannerHud();
   registerTrainingMetersHud();
   registerCameraDebugHud();
+  initStreetImagery();
   registerMinimapHud();
 
   restoreSettings();
@@ -240,6 +251,22 @@ function bindEvents() {
   els.terrainTilesInput.addEventListener("change", updateRenderingSettingsFromControls);
   els.routeGradeColorsInput.addEventListener("change", updateRenderingSettingsFromControls);
   els.resetRenderingBtn.addEventListener("click", resetRenderingToDefaults);
+  els.streetImageryInput.addEventListener("change", updateStreetImagerySettingsFromControls);
+  els.mapillaryUsernameInput.addEventListener("change", updateStreetImagerySettingsFromControls);
+  els.mapillaryTokenSaveBtn.addEventListener("click", saveMapillaryToken);
+  els.mapillaryTokenInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveMapillaryToken();
+    }
+  });
+  els.contributeOpenBtn.addEventListener("click", openContributeDialog);
+  els.streetImageryChipContributeBtn.addEventListener("click", openContributeDialog);
+  els.contributeCloseBtn.addEventListener("click", closeContributeDialog);
+  els.contributeDialog.addEventListener("click", closeContributeDialogOnBackdrop);
+  els.contributeDownloadGpxBtn.addEventListener("click", downloadRouteGpx);
+  els.contributeCheckCoverageBtn.addEventListener("click", checkRouteCoverage);
+  els.contributeEnableBtn.addEventListener("click", enableStreetImageryAndRide);
   els.connectBtn.addEventListener("click", connectTrainer);
   els.connectHrBtn.addEventListener("click", connectHeartRate);
   els.demoModeBtn.addEventListener("click", toggleDemoMode);

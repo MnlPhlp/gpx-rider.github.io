@@ -1,4 +1,4 @@
-import { clamp, haversine, lerp } from "../core/geo.mjs";
+import { bearing, clamp, haversine, lerp } from "../core/geo.mjs";
 import {
   CLIMB_NOISE_THRESHOLD_METERS,
   GRADE_LOOKAROUND_METERS,
@@ -121,6 +121,18 @@ export function interpolateRoutePoint(route, distance) {
     ele: lerp(previous.ele, next.ele, ratio),
     distance,
   };
+}
+
+// Direction of travel at `distance` along the route, in degrees clockwise from
+// north: the bearing between the points sampleMeters behind and ahead (clamped
+// to the route ends), so a short window tracks the rider's actual heading
+// rather than a spot far up the road.
+export function routeBearingAt(route, distance, sampleMeters) {
+  if (!route || route.length < 2) return 0;
+  const total = routeTotalDistance(route);
+  const from = interpolateRoutePoint(route, clamp(distance - sampleMeters, 0, total));
+  const to = interpolateRoutePoint(route, clamp(distance + sampleMeters, 0, total));
+  return ((bearing(from, to) % 360) + 360) % 360;
 }
 
 // Subdivide long segments so no two consecutive points are further apart

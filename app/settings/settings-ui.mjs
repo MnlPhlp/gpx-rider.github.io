@@ -1,5 +1,6 @@
 // Settings dialog wiring (everything except the camera panel, which lives in
-// camera-ui.mjs): the category rail/panel shell, units & formats, the rider
+// camera-ui.mjs, and the street imagery panel, which lives in
+// street-view/street-view-settings.mjs): the category rail/panel shell, units & formats, the rider
 // profile, profile series toggles, Display & HUD toggles, rendering settings,
 // and screenshot settings. Each update*FromControls reads the inputs into
 // state, persists, and applies; each sync* writes state back into the inputs.

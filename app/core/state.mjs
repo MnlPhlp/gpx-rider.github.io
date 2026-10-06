@@ -33,6 +33,7 @@ import {
   DEFAULT_SCREENSHOT_WIDTH,
   DEFAULT_SHOW_MINIMAP,
   DEFAULT_SHOW_SCREENSHOT_BUTTON,
+  DEFAULT_STREET_IMAGERY_ENABLED,
   DEFAULT_TERRAIN_AVOID_ENABLED,
   DEFAULT_TERRAIN_CLEARANCE_METERS,
   DEFAULT_TERRAIN_TILES_ENABLED,
@@ -188,6 +189,31 @@ export const state = {
   fullscreenClockTimer: null,
   showMinimap: DEFAULT_SHOW_MINIMAP,
   mapLabelsEnabled: DEFAULT_MAP_LABELS_ENABLED,
+  // Street-level imagery (street-view/): the persisted switch, the user's own
+  // Mapillary client token (empty = use the deployed default) and username
+  // (prefers their own uploads), plus the feature's live runtime state in one
+  // object — the frame index for the loaded route (indexRoute is the route it
+  // was built for, so a route swap is detected by identity), the in-flight
+  // scan, the mounted renderer, the frame on screen, and a status for the chip
+  // ("off" | "no-token" | "scanning" | "ready" | "token-error" | "load-error").
+  streetImageryEnabled: DEFAULT_STREET_IMAGERY_ENABLED,
+  mapillaryToken: "",
+  mapillaryUsername: "",
+  streetImagery: {
+    index: null,
+    indexRoute: null,
+    scanController: null,
+    scanDone: false,
+    source: null,
+    renderer: null,
+    rendererPromise: null,
+    current: null,
+    visible: false,
+    status: "off",
+    scan: { done: 0, total: 0 },
+    coverage: null,
+    loopTimer: null,
+  },
   cameraDebugEnabled: DEFAULT_CAMERA_DEBUG_ENABLED,
   cameraDebugCollapsed: false,
   cameraDebugTimer: null,
@@ -436,6 +462,25 @@ export const els = {
   recCaloriesStat: document.querySelector("#recCaloriesStat"),
   downloadFitBtn: document.querySelector("#downloadFitBtn"),
   clearRideDataBtn: document.querySelector("#clearRideDataBtn"),
+  streetImageryLayer: document.querySelector("#streetImageryLayer"),
+  streetImageryChip: document.querySelector("#streetImageryChip"),
+  streetImageryChipText: document.querySelector("#streetImageryChipText"),
+  streetImageryChipContributeBtn: document.querySelector("#streetImageryChipContributeBtn"),
+  streetImageryInput: document.querySelector("#streetImageryInput"),
+  mapillaryTokenInput: document.querySelector("#mapillaryTokenInput"),
+  mapillaryTokenSaveBtn: document.querySelector("#mapillaryTokenSaveBtn"),
+  mapillaryTokenNote: document.querySelector("#mapillaryTokenNote"),
+  mapillaryTokenHelpLink: document.querySelector("#mapillaryTokenHelpLink"),
+  mapillaryUsernameInput: document.querySelector("#mapillaryUsernameInput"),
+  streetImageryCoverage: document.querySelector("#streetImageryCoverage"),
+  streetImageryCredit: document.querySelector("#streetImageryCredit"),
+  contributeOpenBtn: document.querySelector("#contributeOpenBtn"),
+  contributeDialog: document.querySelector("#contributeDialog"),
+  contributeCloseBtn: document.querySelector("#contributeCloseBtn"),
+  contributeDownloadGpxBtn: document.querySelector("#contributeDownloadGpxBtn"),
+  contributeCheckCoverageBtn: document.querySelector("#contributeCheckCoverageBtn"),
+  contributeCoverage: document.querySelector("#contributeCoverage"),
+  contributeEnableBtn: document.querySelector("#contributeEnableBtn"),
 };
 
 // One-line status readout under the progress bar; the app-wide way to tell

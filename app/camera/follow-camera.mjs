@@ -30,7 +30,7 @@ import { updateRideUi } from "../ride/ride-ui.mjs";
 import {
   interpolateRoutePoint,
   maxElevationNear,
-  routeTotalDistance,
+  routeBearingAt,
 } from "../route/route.mjs";
 import { updateRiderDot } from "../map/route-render.mjs";
 import { terrainElevationAt } from "../map/terrain-tiles.mjs";
@@ -621,13 +621,9 @@ function captureManualCameraSettings() {
 }
 
 export function currentRouteHeading(progressMeters = state.progressMeters) {
-  if (state.route.length < 2) return 0;
-  // Sample a short window around the rider so the camera points exactly the
-  // way the rider is moving, rather than at a spot far up the road.
-  const total = routeTotalDistance(state.route);
-  const from = interpolateRoutePoint(state.route, clamp(progressMeters - HEADING_SAMPLE_METERS, 0, total));
-  const to = interpolateRoutePoint(state.route, clamp(progressMeters + HEADING_SAMPLE_METERS, 0, total));
-  return normalizeHeading(bearing(from, to));
+  // A short window around the rider (routeBearingAt) so the camera points
+  // exactly the way the rider is moving, rather than at a spot far up the road.
+  return normalizeHeading(routeBearingAt(state.route, progressMeters, HEADING_SAMPLE_METERS));
 }
 
 function mapCenter() {

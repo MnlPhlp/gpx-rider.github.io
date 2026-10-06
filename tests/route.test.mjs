@@ -8,6 +8,7 @@ import {
   gradeAt,
   interpolateRoutePoint,
   maxElevationNear,
+  routeBearingAt,
   routeTotalAscent,
   routeTotalDescent,
   routeTotalDistance,
@@ -27,6 +28,19 @@ test("enrichRoute accumulates distance along the track", () => {
   assert.ok(route[1].distance > 100 && route[1].distance < 125);
   assert.ok(route[2].distance > route[1].distance);
   assert.equal(routeTotalDistance(route), route.at(-1).distance);
+});
+
+test("routeBearingAt samples the local direction of travel and clamps at the ends", () => {
+  const route = enrichRoute(points);
+  assert.ok(Math.abs(routeBearingAt(route, 100, 4)) < 1, "heading north mid-route");
+  assert.ok(Math.abs(routeBearingAt(route, 0, 4)) < 1, "clamped at the start");
+  assert.ok(Math.abs(routeBearingAt(route, routeTotalDistance(route), 4)) < 1, "clamped at the end");
+  const east = enrichRoute([
+    { lat: 50.0, lng: 14.400, ele: 0 },
+    { lat: 50.0, lng: 14.402, ele: 0 },
+  ]);
+  assert.ok(Math.abs(routeBearingAt(east, 50, 4) - 90) < 1);
+  assert.equal(routeBearingAt([{ lat: 0, lng: 0, ele: 0, distance: 0 }], 0, 4), 0);
 });
 
 test("interpolateRoutePoint blends position and elevation", () => {

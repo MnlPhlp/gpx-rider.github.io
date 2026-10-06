@@ -37,6 +37,8 @@ import {
 } from "../settings/settings-ui.mjs";
 import { els, state, updateProgressLabel } from "../core/state.mjs";
 import { readJson, removeStored, writeJson } from "./storage.mjs";
+import { syncStreetImageryControls } from "../street-view/street-view-settings.mjs";
+import { applyStreetImagerySetting } from "../street-view/street-view-ui.mjs";
 import { renderZoneSummaries } from "../ride/training-zones.mjs";
 import {
   CAMERA_CENTER_ALTITUDE_LIMIT_METERS,
@@ -235,6 +237,18 @@ export function restoreSettings() {
     state.mapLabelsEnabled = settings.mapLabelsEnabled;
   }
 
+  if (typeof settings?.streetImageryEnabled === "boolean") {
+    state.streetImageryEnabled = settings.streetImageryEnabled;
+  }
+
+  if (typeof settings?.mapillaryToken === "string") {
+    state.mapillaryToken = settings.mapillaryToken.trim().slice(0, 256);
+  }
+
+  if (typeof settings?.mapillaryUsername === "string") {
+    state.mapillaryUsername = settings.mapillaryUsername.trim().slice(0, 128);
+  }
+
   if (typeof settings?.cameraDebugEnabled === "boolean") {
     state.cameraDebugEnabled = settings.cameraDebugEnabled;
   }
@@ -317,6 +331,8 @@ export function restoreSettings() {
   applyScreenshotButtonVisibility();
   syncDisplayControls();
   applyDisplaySettings();
+  syncStreetImageryControls();
+  applyStreetImagerySetting();
 }
 
 export function saveSettings() {
@@ -356,6 +372,9 @@ export function saveSettings() {
     ftpWatts: state.ftpWatts,
     showMinimap: state.showMinimap,
     mapLabelsEnabled: state.mapLabelsEnabled,
+    streetImageryEnabled: state.streetImageryEnabled,
+    mapillaryToken: state.mapillaryToken,
+    mapillaryUsername: state.mapillaryUsername,
     cameraDebugEnabled: state.cameraDebugEnabled,
     cameraDebugCollapsed: state.cameraDebugCollapsed,
     theaterHideClock: state.theaterHideClock,

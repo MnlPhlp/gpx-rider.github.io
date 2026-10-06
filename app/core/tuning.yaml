@@ -548,6 +548,113 @@ terrain_tiles:
   # terrain is on (the compiled SRTM/USGS sources ask for a credit line).
   attribution: "Elevation data courtesy of Mapzen / AWS Open Data"
 
+# --- Street-level imagery (Mapillary) ----------------------------------------
+#
+# Real street photos in the first-person view, where they exist. The app looks
+# up Mapillary images along the loaded route (free, CC BY-SA, crowd-sourced —
+# coverage is partial and the 3D view fills the gaps) and shows the one that
+# sits where the rider is and faces the way the rider rides. Privacy trade-off:
+# while this is ON, the grid cells the route passes through are sent to
+# Mapillary (Meta) to find images; nothing is sent while it is off, which is
+# the default. The viewer library is loaded on demand from a pinned CDN URL
+# only once the feature is enabled.
+street_imagery:
+  # Default for the "Street imagery" switch — off: opt-in, see above.
+  enabled: false
+
+  # MapillaryJS viewer (MIT), loaded on first enable. Pinned version; to
+  # self-host, vendor the two files into app/assets/ and point these at them.
+  viewer_script_url: "https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js"
+  viewer_style_url: "https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.css"
+
+  # Graph API image search, and the entity fields requested per image.
+  graph_base_url: "https://graph.mapillary.com"
+  image_fields: ["id", "geometry", "compass_angle", "computed_compass_angle", "is_pano", "sequence", "captured_at", "creator"]
+
+  # Results per cell request (the API maximum). A cell that returns exactly
+  # this many is assumed truncated and split into quadrants (dense cities),
+  # down to subdivide_max_depth levels.
+  request_limit: 2000
+  subdivide_max_depth: 4
+
+  # Search grid cell edge (degrees; 0.005° ≈ 550 m) — the Graph API caps a
+  # bbox at 0.01 deg² of area — and how far past a cell edge a route point
+  # still pulls in the neighboring cell.
+  cell_size_degrees: 0.005
+  cell_margin_degrees: 0.0003
+
+  # Parallel cell requests, and a hard cap on candidates per route scan.
+  scan_concurrency: 4
+  max_candidates: 60000
+
+  # A candidate is usable when it lies within max_offset_meters of the track
+  # and either is a 360° image or faces within heading_tolerance_degrees of
+  # the direction of travel there (sampled ±heading_sample_meters).
+  max_offset_meters: 15
+  heading_tolerance_degrees: 45
+  heading_sample_meters: 4
+
+  # Reach window around the rider (m) in which a frame may be shown; outside
+  # it the 3D view fades back in.
+  max_behind_meters: 40
+  max_ahead_meters: 60
+
+  # Playback cadence. Only step to a frame at least min_advance_meters ahead
+  # of the one on screen (dense areas have a frame every 1–2 m; ~10 m is
+  # Mapillary's own in-sequence spacing and where the view actually changes,
+  # so this sets the pace by distance, not by clock), advance once the rider
+  # has covered switch_hysteresis_fraction of the way to it, and never sooner
+  # than min_dwell_ms after the last switch.
+  min_advance_meters: 10
+  switch_hysteresis_fraction: 0.5
+  min_dwell_ms: 500
+
+  # Experimental approach zoom, OFF by default (0): the current photo zooms
+  # in as the rider closes in on the next frame's position, reaching this
+  # MapillaryJS zoom level (1 = 2× magnification, max 3) right at it. In
+  # practice it reads as a step *back* at every cut — the next photo opens at
+  # zoom 0 with a wider field of view than the zoomed-in one it replaces, and
+  # a zoom can only mimic a meter or two of travel while images are ~10 m
+  # apart — so the viewer's own sequence transition is left to carry the
+  # forward motion. Kept as a knob for experiments.
+  approach_zoom_max: 0
+
+  # Selection bonuses, in meters of "closer": stay in the current capture
+  # sequence (smooth transitions), prefer the user's own uploads (set the
+  # Mapillary username in Settings), prefer 360° images.
+  same_sequence_bonus_meters: 40
+  own_imagery_bonus_meters: 30
+  pano_bonus_meters: 5
+
+  # Vertical field of view (deg) when showing a 360° image.
+  pano_fov_degrees: 80
+
+  # Layer cross-fade (ms) and how often the layer re-evaluates (ms) — the
+  # approach zoom is stepped at this rate, so keep it short.
+  fade_ms: 400
+  refresh_ms: 100
+
+  # Coverage summary: frames closer than this (m) count as one covered run.
+  coverage_gap_meters: 100
+
+  # Covered-run strip under the elevation profile: height (px) and color.
+  profile_strip_px: 3
+  profile_strip_color: "rgba(99, 196, 255, 0.85)"
+
+  # Credit line (CC BY-SA imagery; the viewer also shows per-image credits),
+  # and where to get a free client token.
+  attribution: "Street imagery © Mapillary contributors, CC BY-SA 4.0"
+  mapillary_home_url: "https://www.mapillary.com/"
+  token_help_url: "https://www.mapillary.com/dashboard/developers"
+
+  # HUD chip texts.
+  chip_prefix: "Street imagery"
+  chip_scanning: "Street imagery · scanning route"
+  chip_no_imagery: "No street imagery here yet"
+  chip_no_token: "Street imagery needs a Mapillary token · see Settings"
+  chip_token_rejected: "Mapillary rejected the token · see Settings"
+  chip_load_error: "Street imagery viewer failed to load"
+
 # --- Profile segment selection -----------------------------------------------
 profile_segment_selection:
   # Horizontal pointer movement before a profile interaction becomes a segment

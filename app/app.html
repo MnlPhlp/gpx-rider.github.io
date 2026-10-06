@@ -41,8 +41,13 @@
         <section class="map-pane">
           <div id="mapViewport" class="map-viewport">
             <div id="map" aria-label="Route map"></div>
+            <div id="streetImageryLayer" class="street-imagery-layer" aria-label="Street-level imagery"></div>
             <div id="minimap" aria-label="Minimap showing rider position on the route"></div>
             <div id="demoBanner" class="demo-banner" hidden>Demo mode: synthetic trainer + HR, FIT recording paused</div>
+            <div id="streetImageryChip" class="street-imagery-chip" hidden>
+              <span id="streetImageryChipText"></span>
+              <button id="streetImageryChipContributeBtn" type="button" class="btn btn-sm btn-outline-blue" hidden>Contribute…</button>
+            </div>
             <div class="map-actions">
               <button id="screenshotBtn" type="button" class="map-action-btn" title="Save a JPG of the map view" aria-label="Save a JPG of the map view">
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
@@ -586,6 +591,11 @@
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
             <span>Screenshots</span>
           </button>
+          <button type="button" class="settings-tab" data-settings-tab="street"
+            data-panel-title="Street imagery" data-panel-subtitle="Real street photos in the first-person view, where Mapillary has them.">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="8.5" cy="10" r="1.6"></circle><path d="M21 15.5l-5-5-8 8.5"></path></svg>
+            <span>Street imagery</span>
+          </button>
           <button type="button" class="settings-tab" data-settings-tab="data"
             data-panel-title="Data &amp; storage" data-panel-subtitle="Everything stays in this browser — nothing is uploaded.">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"></ellipse><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"></path></svg>
@@ -906,6 +916,52 @@
             </p>
           </section>
 
+          <section class="settings-panel" data-settings-panel="street" hidden>
+            <div class="setting-row">
+              <div class="setting-row-text">
+                <span class="setting-row-label">Show street imagery in first person</span>
+                <span class="setting-row-hint">real photos from Mapillary where the route has coverage; the 3D view fills the gaps</span>
+              </div>
+              <label class="switch">
+                <input id="streetImageryInput" type="checkbox">
+                <span class="switch-track"><span class="switch-knob"></span></span>
+              </label>
+            </div>
+            <p id="streetImageryCoverage" class="settings-note street-coverage-note">—</p>
+            <div class="settings-divider"></div>
+            <div class="api-key-control">
+              <label for="mapillaryTokenInput" class="setting-row-label">Mapillary client token</label>
+              <div class="api-key-row">
+                <input id="mapillaryTokenInput" type="text" autocomplete="off" spellcheck="false" placeholder="MLY|…">
+                <button id="mapillaryTokenSaveBtn" type="button" class="btn btn-accent">Save</button>
+              </div>
+              <p id="mapillaryTokenNote" class="settings-note"></p>
+              <p class="settings-note">
+                Free: register an application in your
+                <a id="mapillaryTokenHelpLink" href="https://www.mapillary.com/dashboard/developers" target="_blank" rel="noopener">Mapillary developer dashboard</a>
+                and copy its client token. Stored only in this browser.
+              </p>
+            </div>
+            <div class="settings-divider"></div>
+            <div class="api-key-control">
+              <label for="mapillaryUsernameInput" class="setting-row-label">Your Mapillary username</label>
+              <div class="api-key-row">
+                <input id="mapillaryUsernameInput" type="text" autocomplete="off" spellcheck="false" placeholder="optional">
+              </div>
+              <p class="settings-note">
+                Prefers your own uploads where several riders have photographed the
+                same road, and counts them in the coverage check.
+              </p>
+            </div>
+            <div class="settings-divider"></div>
+            <button id="contributeOpenBtn" type="button" class="btn btn-ghost">Contribute your own imagery…</button>
+            <p class="settings-note">
+              Privacy: while this is on, the map cells the route passes through are
+              sent to Mapillary (Meta) to find images. Nothing is sent while it is off.
+            </p>
+            <p id="streetImageryCredit" class="settings-note"></p>
+          </section>
+
           <section class="settings-panel" data-settings-panel="data" hidden>
             <div id="apiKeySection" class="api-key-control">
               <label for="mapsApiKeyInput" class="setting-row-label">Google Maps API key</label>
@@ -968,6 +1024,49 @@
       </header>
       <div class="gallery-scroll">
         <div class="gallery-grid" id="galleryGrid"></div>
+      </div>
+    </dialog>
+
+    <dialog id="contributeDialog" class="contribute-dialog" aria-labelledby="contributeTitle">
+      <header class="contribute-head">
+        <div>
+          <h2 id="contributeTitle" class="contribute-title">Contribute your own street imagery</h2>
+          <p class="contribute-sub">Ride it for real, publish the photos on Mapillary, then ride it again here through your own imagery.</p>
+        </div>
+        <button id="contributeCloseBtn" type="button" class="icon-btn" title="Close" aria-label="Close">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="5" x2="19" y2="19"></line><line x1="19" y1="5" x2="5" y2="19"></line></svg>
+        </button>
+      </header>
+      <div class="contribute-body">
+        <section class="panel-card contribute-step">
+          <div class="panel-card-head"><span class="contribute-step-no">1</span><h3 class="panel-card-title">Capture the ride</h3></div>
+          <p><strong>Phone:</strong> install the Mapillary app (iOS or Android), mount the phone landscape on the bars with a sturdy mount, wait for a GPS lock, then record in automatic mode (about one photo every 2 s, roughly every 10 m). Good light and a smooth line matter more than resolution.</p>
+          <p><strong>Action camera:</strong> record a normal or 360° video and log the ride with your bike computer or phone. You will need that GPX track <em>with timestamps</em> to geotag the frames.</p>
+        </section>
+        <section class="panel-card contribute-step">
+          <div class="panel-card-head"><span class="contribute-step-no">2</span><h3 class="panel-card-title">Upload to Mapillary</h3></div>
+          <p>Photos taken with the app upload from the app itself. For videos or camera photos use the <a href="https://www.mapillary.com/desktop-uploader" target="_blank" rel="noopener">Desktop Uploader</a> (add your GPX as the geotag source), or the <a href="https://github.com/mapillary/mapillary_tools" target="_blank" rel="noopener">mapillary_tools</a> command line, for example:</p>
+          <pre class="contribute-code">pip install mapillary_tools
+mapillary_tools video_process_and_upload ride.mp4 --geotag_source gpx --geotag_source_path ride.gpx</pre>
+          <p>
+            <button id="contributeDownloadGpxBtn" type="button" class="btn btn-sm btn-outline-blue">Download this route as GPX</button>
+            <span class="contribute-hint">— handy for planning; it has no timestamps, so geotag a video with the track you recorded while riding.</span>
+          </p>
+        </section>
+        <section class="panel-card contribute-step">
+          <div class="panel-card-head"><span class="contribute-step-no">3</span><h3 class="panel-card-title">Wait for processing</h3></div>
+          <p>Mapillary processes uploads within hours, sometimes days. Put your Mapillary username into Settings › Street imagery so GPX Rider prefers your sequences, then check this route:</p>
+          <p>
+            <button id="contributeCheckCoverageBtn" type="button" class="btn btn-sm btn-blue">Check coverage of this route</button>
+            <span id="contributeCoverage" class="contribute-coverage">—</span>
+          </p>
+        </section>
+        <section class="panel-card contribute-step">
+          <div class="panel-card-head"><span class="contribute-step-no">4</span><h3 class="panel-card-title">Ride it</h3></div>
+          <p>Turn on street imagery and switch to the first-person camera. Where your photos exist you ride through them; everywhere else the 3D view fills in.</p>
+          <button id="contributeEnableBtn" type="button" class="btn btn-accent">Enable street imagery and ride in first person</button>
+        </section>
+        <p class="settings-note">Imagery you upload is published on Mapillary (owned by Meta) under CC BY-SA; you keep the rights to your photos. GPX Rider only reads it back through the public API.</p>
       </div>
     </dialog>
 

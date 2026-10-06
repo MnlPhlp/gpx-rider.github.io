@@ -63,6 +63,9 @@ export function drawProfile(
     distanceUnits = "metric",
     historySamples = [],
     visibleSeries = {},
+    // Optional street-imagery coverage strip: { segments: [{ startMeters,
+    // endMeters }], heightPx, color } — covered runs along the plot's bottom.
+    coverage = null,
   },
 ) {
   const ctx = configureCanvas(canvas);
@@ -106,6 +109,7 @@ export function drawProfile(
     xFor,
   });
   drawDistanceAxis(ctx, { totalDistance, chartLeft, chartRight, chartBottom, xFor, theme, distanceUnits });
+  if (coverage) drawCoverageStrip(ctx, { coverage, totalDistance, chartLeft, chartRight, chartBottom, xFor });
 
   const markerX = chartLeft + progress * chartWidth;
   ctx.beginPath();
@@ -239,6 +243,21 @@ export function distanceAtProfileX(canvas, clientX, route) {
   const chartWidth = Math.max(1, chartRight - chartLeft);
   const x = clamp(clientX - rect.left, chartLeft, chartRight);
   return ((x - chartLeft) / chartWidth) * routeTotalDistance(route);
+}
+
+// Thin band along the plot's bottom edge marking where street imagery exists,
+// so gaps are visible before riding into them.
+function drawCoverageStrip(ctx, { coverage, totalDistance, chartLeft, chartRight, chartBottom, xFor }) {
+  const height = Math.max(1, coverage.heightPx || 3);
+  ctx.save();
+  ctx.fillStyle = coverage.color || "rgba(99, 196, 255, 0.85)";
+  for (const segment of coverage.segments || []) {
+    const startX = Math.max(chartLeft, xFor(Math.max(0, segment.startMeters)));
+    const endX = Math.min(chartRight, xFor(Math.min(totalDistance, segment.endMeters)));
+    if (endX <= startX) continue;
+    ctx.fillRect(startX, chartBottom - height, endX - startX, height);
+  }
+  ctx.restore();
 }
 
 function fillProfileBackground(ctx, theme, width, height, dark) {
