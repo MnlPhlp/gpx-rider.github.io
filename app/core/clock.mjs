@@ -29,8 +29,7 @@ export function advanceVirtualClock(deltaMs) {
   return virtual;
 }
 
-// Back to real time (the in-browser stepped video export releases the clock
-// when it finishes). Every loop clamps its next delta, so the jump is safe.
+// Back to real time. Every loop clamps its next delta, so the jump is safe.
 export function disableVirtualClock() {
   virtual = null;
 }

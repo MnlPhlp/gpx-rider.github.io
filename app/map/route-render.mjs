@@ -1,5 +1,6 @@
 // Map geometry for the loaded route: the elevated 3D route lines (grade
-// colours + focused-segment highlight), the rider dot (a Model3DElement mesh —
+// colours + focused-segment highlight; cut at the rider by route-trail.mjs in
+// the recording view), the rider dot (a Model3DElement mesh —
 // see the CLAUDE.md notes on why not a polygon or a pin), the opt-in rider
 // beacon, and the 2D minimap route + marker.
 
@@ -15,6 +16,7 @@ import {
   routeTotalDistance,
 } from "../route/route.mjs";
 import { gradeColoredRouteSegments, styledRouteSegments } from "./route-style.mjs";
+import { clearRouteTrail, routeTrailEnabled, setRouteTrailSegments } from "./route-trail.mjs";
 import { state, updateProgressLabel } from "../core/state.mjs";
 import {
   DEFAULT_BEACON_COLOR,
@@ -125,31 +127,43 @@ function renderGoogle3DRoute(currentPoint) {
 }
 
 export function renderRouteLines(linePoints) {
-  const { AltitudeMode, Polyline3DElement } = state.maps3d;
+  const { Polyline3DElement } = state.maps3d;
   if (!Polyline3DElement) return;
   state.routeLines.forEach((line) => line.remove());
   state.routeLines = [];
+  clearRouteTrail();
 
   const styledSegments = styledMapRouteSegments(linePoints);
 
-  // Use each polyline's built-in casing, never a second stacked line for the
-  // outline: stacked geometries z-fight at overview distances.
-  state.routeLines = styledSegments.map((segment) => {
-    const line = new Polyline3DElement({
-      altitudeMode: AltitudeMode?.RELATIVE_TO_GROUND,
-      path: segment.path.map((point) => ({
-        lat: point.lat,
-        lng: point.lng,
-        altitude: ROUTE_LINE_ALTITUDE_METERS,
-      })),
-      strokeColor: segment.color,
-      strokeWidth: segment.focused ? ROUTE_FOCUS_LINE_WIDTH : ROUTE_LINE_WIDTH,
-      outerColor: segment.focused ? ROUTE_FOCUS_OUTER_COLOR : ROUTE_LINE_OUTER_COLOR,
-      outerWidth: segment.focused ? ROUTE_FOCUS_OUTER_WIDTH : ROUTE_LINE_OUTER_WIDTH,
-    });
-    state.map.append(line);
-    return line;
+  // The recording view's trail shows the same segments only up to the rider
+  // (route-trail.mjs owns those lines).
+  if (routeTrailEnabled()) {
+    setRouteTrailSegments(styledSegments);
+    return;
+  }
+  state.routeLines = styledSegments.map(createRouteLine);
+}
+
+// One styled run of the route as an elevated polyline on the 3D map. Uses the
+// polyline's built-in casing, never a second stacked line for the outline:
+// stacked geometries z-fight at overview distances.
+export function createRouteLine(segment) {
+  const { AltitudeMode, Polyline3DElement } = state.maps3d;
+  const line = new Polyline3DElement({
+    altitudeMode: AltitudeMode?.RELATIVE_TO_GROUND,
+    path: routeLinePath(segment.path),
+    strokeColor: segment.color,
+    strokeWidth: segment.focused ? ROUTE_FOCUS_LINE_WIDTH : ROUTE_LINE_WIDTH,
+    outerColor: segment.focused ? ROUTE_FOCUS_OUTER_COLOR : ROUTE_LINE_OUTER_COLOR,
+    outerWidth: segment.focused ? ROUTE_FOCUS_OUTER_WIDTH : ROUTE_LINE_OUTER_WIDTH,
   });
+  state.map.append(line);
+  return line;
+}
+
+// Route points → the polyline's path, floated above the ground.
+export function routeLinePath(points) {
+  return points.map((point) => ({ lat: point.lat, lng: point.lng, altitude: ROUTE_LINE_ALTITUDE_METERS }));
 }
 
 function styledMapRouteSegments(path) {
@@ -272,6 +286,7 @@ function beaconFillColor() {
 
 export function clearRouteFromMap() {
   state.routeLines.forEach((line) => line.remove());
+  clearRouteTrail();
   removeRiderMarker();
   clearOverviewDebugLine();
 

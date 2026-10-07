@@ -49,7 +49,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Same port as `make run`: a Maps key restricted to http://127.0.0.1:5173/*
 # would reject any other origin with RefererNotAllowedMapError.
 DEFAULT_PORT = 5173
-HIDE_KEYS = ("clock", "meters", "dock", "climb-banner", "demo-chip", "controls", "minimap")
+HIDE_KEYS = ("clock", "meters", "dock", "climb-banner", "demo-chip", "controls", "minimap", "route-ahead")
 CHROME_CANDIDATES = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome")
 
 

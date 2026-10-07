@@ -2,15 +2,20 @@
 // browsers block scripted resizing of a window/tab they didn't open via
 // window.open()), pin the map viewport itself to an exact recording size in
 // CSS pixels via the .theater-mode class (styles.css), centered over a dimmed
-// backdrop, so a screen recording always captures a consistent size. A
-// toolbar under the viewport (#theaterToolbar) holds the "hide in recording
-// view" overlay toggles — what you see is what a recording or a replay video
-// export shows — and, when a recorded ride is loaded, the replay transport
-// and the Record button (replay/replay-mode.mjs, replay/video-export.mjs).
-// Dismissed by Escape, the toolbar's Exit, or a click outside the map and
-// toolbar (see the shared document keydown/click handlers in app.js), same
-// convention as the camera menus.
+// backdrop, so a screen recording always captures a consistent size. When
+// the browser window is too small for that size, the viewport is scaled down
+// *uniformly* (fitTheaterViewport) — never clamped on one side — so its
+// aspect, which is the video export's frame, survives and nothing at its
+// edges is cropped out of the recording. A toolbar under the viewport
+// (#theaterToolbar) holds the "hide in recording view" overlay toggles — what
+// you see is what a recording or a replay video export shows — and, when a
+// recorded ride is loaded, the replay transport and the Record button
+// (replay/replay-mode.mjs, replay/video-export.mjs). Dismissed by Escape, the
+// toolbar's Exit, or a click outside the map and toolbar (see the shared
+// document keydown/click handlers in app.js), same convention as the camera
+// menus.
 
+import { rebuildRouteStyle } from "../map/route-render.mjs";
 import { renderProfile } from "../route/profile-ui.mjs";
 import { applyReplayCameraChoice, syncRecordButton, stopReplayVideoExport } from "../replay/video-export.mjs";
 import { els, state, updateProgressLabel } from "../core/state.mjs";
@@ -38,8 +43,7 @@ const TOOLBAR_BOTTOM_PX = 14;
 // .theater-mode rule sizes the viewport with, the toolbar's toggle label, and
 // the toggle button's text/title. Called once at boot.
 export function initTheaterModeUi() {
-  els.mapViewport.style.setProperty("--recording-viewport-w", `${RECORDING_MAP_VIEWPORT_WIDTH_PIXELS}px`);
-  els.mapViewport.style.setProperty("--recording-viewport-h", `${RECORDING_MAP_VIEWPORT_HEIGHT_PIXELS}px`);
+  setRecordingViewportSize(RECORDING_MAP_VIEWPORT_WIDTH_PIXELS, RECORDING_MAP_VIEWPORT_HEIGHT_PIXELS);
   els.resizeRecordingWindowBtn.textContent = `${RECORDING_SIZE_LABEL} map`;
   els.resizeRecordingWindowBtn.title = ENTER_TITLE;
   if (els.theaterHudTogglesLabel) {
@@ -51,14 +55,65 @@ export function initTheaterModeUi() {
   if (els.theaterToolbar && typeof ResizeObserver === "function") {
     new ResizeObserver(reserveToolbarSpace).observe(els.theaterToolbar);
   }
+  window.addEventListener("resize", fitTheaterViewport);
   syncTheaterToolbar();
+}
+
+// The recording size the viewport is pinned to, in CSS pixels: the
+// configured preset, or whatever the headless renderer asks for.
+export function setRecordingViewportSize(width, height) {
+  els.mapViewport.style.setProperty("--recording-viewport-w", `${Math.round(width)}px`);
+  els.mapViewport.style.setProperty("--recording-viewport-h", `${Math.round(height)}px`);
+  fitTheaterViewport();
+}
+
+// Width ÷ height of the configured recording size — the video export's frame
+// aspect (a scaled-down viewport rounds to whole CSS pixels, so the output
+// snaps to this rather than to the measured capture).
+export function recordingViewportAspect() {
+  const { width, height } = configuredRecordingSize();
+  return width / height;
+}
+
+function configuredRecordingSize() {
+  const width = parseFloat(els.mapViewport.style.getPropertyValue("--recording-viewport-w"));
+  const height = parseFloat(els.mapViewport.style.getPropertyValue("--recording-viewport-h"));
+  return {
+    width: width > 0 ? width : RECORDING_MAP_VIEWPORT_WIDTH_PIXELS,
+    height: height > 0 ? height : RECORDING_MAP_VIEWPORT_HEIGHT_PIXELS,
+  };
+}
+
+function toolbarReservePx() {
+  if (!els.theaterToolbar || els.theaterToolbar.hidden) return 0;
+  return els.theaterToolbar.offsetHeight + TOOLBAR_BOTTOM_PX + TOOLBAR_GAP_PX;
 }
 
 function reserveToolbarSpace() {
   if (!els.theaterToolbar || els.theaterToolbar.hidden) return;
-  const height = els.theaterToolbar.offsetHeight;
   els.theaterToolbar.style.setProperty("--theater-toolbar-bottom", `${TOOLBAR_BOTTOM_PX}px`);
-  els.mapViewport.style.setProperty("--theater-toolbar-reserve", `${height + TOOLBAR_BOTTOM_PX + TOOLBAR_GAP_PX}px`);
+  els.mapViewport.style.setProperty("--theater-toolbar-reserve", `${toolbarReservePx()}px`);
+  fitTheaterViewport();
+}
+
+// Sizes the pinned viewport: the configured recording size when the window
+// (minus the toolbar's reserve) has room for it, otherwise the largest box
+// of the same aspect that fits. Scaling both sides by one factor is what
+// keeps the aspect — clamping width and height independently (CSS max-*)
+// changed it, and the video export then had to crop the viewport's edges
+// away, HUD and all. In headless render mode the window *is* the viewport
+// and there is no toolbar.
+function fitTheaterViewport() {
+  if (!state.theaterMode) return;
+  const { width, height } = configuredRecordingSize();
+  const renderMode = document.documentElement.classList.contains("render-mode");
+  const availableWidth = window.innerWidth;
+  const availableHeight = window.innerHeight - (renderMode ? 0 : toolbarReservePx());
+  const scale = Math.min(1, availableWidth / width, availableHeight / height);
+  const fittedWidth = Math.max(2, Math.round(width * scale));
+  const fittedHeight = Math.max(2, Math.round(fittedWidth * (height / width)));
+  els.mapViewport.style.setProperty("--theater-viewport-w", `${fittedWidth}px`);
+  els.mapViewport.style.setProperty("--theater-viewport-h", `${fittedHeight}px`);
 }
 
 export function toggleTheaterMode(event) {
@@ -82,6 +137,8 @@ export function enterTheaterMode() {
   if (state.replay.timeline) applyReplayCameraChoice();
   syncTheaterToolbar();
   reportTheaterModeSize();
+  // The route line becomes the ridden-only trail (if "Route ahead" is hidden).
+  rebuildRouteStyle();
 }
 
 export function exitTheaterMode() {
@@ -94,6 +151,7 @@ export function exitTheaterMode() {
   els.resizeRecordingWindowBtn.title = ENTER_TITLE;
   syncTheaterToolbar();
   if (state.route.length) renderProfile();
+  rebuildRouteStyle();
 }
 
 export function closeTheaterModeOnOutsideClick(event) {
@@ -140,7 +198,7 @@ function reportTheaterModeSize() {
   }
 
   updateProgressLabel(
-    `Map view is ${size.width}x${size.height} px — enlarge the browser window to fit the full `
-      + `${RECORDING_MAP_VIEWPORT_WIDTH_PIXELS}x${RECORDING_MAP_VIEWPORT_HEIGHT_PIXELS} view.`,
+    `Map view scaled to ${size.width}x${size.height} px to fit the window — enlarge the browser window for the full `
+      + `${RECORDING_MAP_VIEWPORT_WIDTH_PIXELS}x${RECORDING_MAP_VIEWPORT_HEIGHT_PIXELS} view (same aspect either way).`,
   );
 }

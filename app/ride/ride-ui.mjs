@@ -12,6 +12,7 @@ import { updateMapCamera } from "../camera/follow-camera.mjs";
 import { updateGalleryMetadataExport } from "../gallery-ui/gallery-export.mjs";
 import { clamp } from "../core/geo.mjs";
 import { updateFullscreenClock } from "../hud/map-hud.mjs";
+import { updateRouteTrail } from "../map/route-trail.mjs";
 import { isMoving } from "./movement.mjs";
 import { replayRemainingSeconds } from "../replay/replay-mode.mjs";
 import { renderProfile } from "../route/profile-ui.mjs";
@@ -55,6 +56,7 @@ export function updateRideUi(options = {}) {
   } else if (state.mapProvider === "google3d" && state.map) {
     renderRiderDot(point);
   }
+  updateRouteTrail();
   updateMapCamera();
 
   // Per-frame work ends here. DOM stats, the profile canvas, and the trainer

@@ -6,6 +6,7 @@
 // delegates to them.
 
 import { nowMs } from "../core/clock.mjs";
+import { updateRouteTrail } from "../map/route-trail.mjs";
 import { normalizeHeading } from "./camera.mjs";
 import { updateOverviewDebugLine } from "./camera-debug.mjs";
 import { focusedRouteRange } from "../route/climbs-ui.mjs";
@@ -225,6 +226,9 @@ export function applyCameraViewPreset(preset) {
 
 export function syncOverviewControls() {
   const hasRoute = state.route.length > 1;
+  // The recording view's route trail shows the whole route while the
+  // overview frames it and cuts it at the rider otherwise.
+  updateRouteTrail();
   // The overview is always the user's to toggle when a route is loaded — even
   // while riding. It is never force-disabled by movement; movement only turns
   // it off automatically once (in ensureMovementLoop).

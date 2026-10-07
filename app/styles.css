@@ -310,9 +310,11 @@ body {
    captures a consistent size without needing the browser window itself
    resized (most browsers block scripted resizing of a window/tab they didn't
    open via window.open()). The size is RECORDING_MAP_VIEWPORT_* from
-   tuning.yaml, stamped onto these variables at boot by initTheaterModeUi —
-   never hardcode it here. Shrinks via max-width/height if the browser window
-   itself is smaller than the recording size. */
+   tuning.yaml, stamped onto --recording-viewport-* at boot by
+   initTheaterModeUi — never hardcode it here. --theater-viewport-* is that
+   size scaled down uniformly by theater-mode.mjs#fitTheaterViewport when the
+   browser window is smaller: the aspect must survive (it is the video
+   export's frame), so no max-width/max-height clamps here. */
 .map-viewport.theater-mode {
   position: fixed;
   /* The bottom inset reserves room for the recording-view toolbar
@@ -322,10 +324,8 @@ body {
      bottom offset and a gap. */
   inset: 0 0 var(--theater-toolbar-reserve, 120px) 0;
   z-index: 45;
-  width: var(--recording-viewport-w, 1280px);
-  height: var(--recording-viewport-h, 720px);
-  max-width: 100vw;
-  max-height: calc(100vh - var(--theater-toolbar-reserve, 120px));
+  width: var(--theater-viewport-w, var(--recording-viewport-w, 1280px));
+  height: var(--theater-viewport-h, var(--recording-viewport-h, 720px));
   margin: auto;
   background: #0b0d10;
   box-shadow: 0 0 0 100vmax rgba(4, 6, 9, 0.86);
@@ -336,26 +336,11 @@ body {
    make room for, and nothing may shrink the frame. */
 html.render-mode .map-viewport.theater-mode {
   inset: 0;
-  max-height: 100vh;
   box-shadow: none;
 }
 
 html.render-mode .theater-toolbar {
   display: none;
-}
-
-/* Frame tag of the stepped video export (map/stepped-video.mjs): a swatch in
-   the window's top-left corner — on the dimmed backdrop, outside the recorded
-   viewport — whose color names the step a captured frame shows. Size must
-   match TAG_SIZE_PX there. */
-.frame-tag {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 1000;
-  width: 12px;
-  height: 12px;
-  pointer-events: none;
 }
 
 /* Recording-view toolbar: fixed under the pinned viewport, above the dimmed

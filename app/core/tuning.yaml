@@ -843,6 +843,13 @@ route_line:
   spacing_meters: 15
   max_points: 5000
 
+  # Recording view only (theater mode, "Route ahead" hidden in the toolbar):
+  # the line is cut at the rider and extended as the rider moves, but only
+  # after this many meters of progress, since re-tessellating the cut
+  # polyline every frame is not free. Smaller = the line ends closer behind
+  # the rider; larger = cheaper.
+  trail_update_meters: 2
+
 # --- Gallery previews & mini profiles ----------------------------------------
 gallery:
   preview:
@@ -883,10 +890,14 @@ recording:
   # screen captures come out at a consistent size. Not exported JPG dimensions,
   # and not an actual browser-window resize — most browsers block scripted
   # resizing of a window/tab they didn't open themselves via window.open().
-  # The UI labels/messages naming this size are derived from these values.
+  # In a smaller window the viewport is scaled down uniformly, keeping this
+  # aspect. The aspect is also the frame of the replay video export
+  # (ride_replay.video records the viewport whole and scales it to
+  # output_width), so keep it 16:9 for a standard video. The UI
+  # labels/messages naming this size are derived from these values.
   map_viewport:
-    width_pixels: 1200
-    height_pixels: 630
+    width_pixels: 1280
+    height_pixels: 720
     tolerance_pixels: 1
 
   # Optional checkboxes (Demo mode panel) that hide specific HUD overlays while
@@ -900,6 +911,11 @@ recording:
     demo_chip: false
     controls: false
     minimap: false
+    # The route ahead of the rider: hidden by default in the recording view,
+    # so the 3D route line only trails the rider (map/route-trail.mjs) and the
+    # rider's position is easy to follow; the whole-route overview still shows
+    # the full route.
+    route_ahead: true
 
 # --- Display & HUD defaults --------------------------------------------------
 display_hud:
@@ -1305,44 +1321,25 @@ ride_replay:
   speed_options: [1, 2, 4, 8, 16, 32]
   default_speed: 4
 
-  # In-browser video export (replay/video-export.mjs). The viewport is cropped
-  # to this aspect ratio and scaled to output_width (even numbers only —
-  # encoders dislike odd dimensions); frame_rate is the video's frame rate and,
-  # for the stepped export, the size of each app-clock step. bits_per_second
-  # caps the encoder (0 = browser default). encoder_latency_mode is the
-  # WebCodecs VideoEncoder mode: desktop Chrome usually has no hardware H.264
-  # encoder (never on Linux by default), and the software encoder in "quality"
-  # mode only manages ~16 fps at 1080p while starving the 3D map of CPU —
-  # "realtime" keeps up with 30 fps and leaves the map alone, trading some
-  # quality per bit, which the 16 Mbit/s default makes up for. The
-  # stepped export (WebCodecs, H.264 MP4) advances the app clock one video
-  # frame per *captured* frame and keeps up to pipeline_depth steps in flight
-  # between stepping and encoding (each captured frame is matched to its step
-  # by a frame tag), so render, capture latency and encode overlap. Its speed
-  # ceiling is the tab capture's frame rate, which can never exceed the
-  # display's refresh rate: a 60 Hz display yields at most 60 steps/s = a
-  # 30 fps video at 2× real time; a 120/144 Hz display up to 4–5×.
-  # capture_frame_rate is the rate requested from the capture (the browser
-  # clamps it to the display); pipeline_depth: higher = more overlap until
-  # the page's frame rate or the encoder is the limit, lower = less memory
-  # and a shorter drain at the end. steady_timeout_ms is kept for
-  # the headless batch renderer only (how long it waits per step for the map's
-  # steady signal); 0 never waits — a camera moving every frame is rarely
-  # "steady", and tiles stream in progressively just as during live playback.
-  # mime_preferences is for the real-time MediaRecorder fallback
-  # only, tried in order. The video opens on a still of the route overview for
-  # intro_seconds before the replay starts (the camera then flies down to the
-  # rider); after the rider finishes, the finish-line orbit keeps going for
-  # outro_seconds before the file is saved.
+  # In-browser video export (replay/video-export.mjs): a real-time recording
+  # of the recording-view viewport through the browser's tab capture and
+  # MediaRecorder. The viewport is recorded whole — its aspect is the video's
+  # (recording.map_viewport above, 16:9 by default) — and scaled to
+  # output_width (even numbers only — encoders dislike odd dimensions; the
+  # captured pixels are the viewport's device pixels, so a viewport smaller
+  # than output_width is upscaled — a 1280×720 viewport on a 150 % display is
+  # a native 1920×1080). frame_rate is the recording's frame rate and
+  # bits_per_second caps the encoder (0 = browser default); the browser's
+  # real-time encoder trades quality per bit for speed, which the generous
+  # default makes up for. mime_preferences is tried in order: current Chrome
+  # writes MP4 (H.264) directly, older ones WebM. The video opens on a still
+  # of the route overview for intro_seconds before the replay starts (the
+  # camera then flies down to the rider); after the rider finishes, the
+  # finish-line orbit keeps going for outro_seconds before the file is saved.
   video:
     output_width: 1920
-    aspect: "16:9"
     frame_rate: 30
     bits_per_second: 16000000
-    encoder_latency_mode: "realtime"
-    capture_frame_rate: 120
-    pipeline_depth: 6
-    steady_timeout_ms: 0
     intro_seconds: 2
     outro_seconds: 6
     mime_preferences:

@@ -9,7 +9,7 @@ export const RENDER_SCRIPT = "scripts/render_replay_video.py";
 export const RIDE_FILE_PLACEHOLDER = "<your-ride.fit-or-.gpx>";
 
 // hide: array of overlay keys as the script expects them (clock, meters,
-// dock, climb-banner, demo-chip, controls, minimap); camera: "follow" |
+// dock, climb-banner, demo-chip, controls, minimap, route-ahead); camera: "follow" |
 // "first-person"; speed: playback multiplier.
 export function buildRenderCommand({ hide = [], speed = 1, camera = "follow", rideFile = RIDE_FILE_PLACEHOLDER } = {}) {
   const parts = ["python3", RENDER_SCRIPT, shellQuote(rideFile)];
@@ -29,6 +29,7 @@ export function hiddenOverlayKeys({
   demoChip = false,
   controls = false,
   minimap = false,
+  routeAhead = false,
 } = {}) {
   const keys = [];
   if (clock) keys.push("clock");
@@ -38,6 +39,7 @@ export function hiddenOverlayKeys({
   if (demoChip) keys.push("demo-chip");
   if (controls) keys.push("controls");
   if (minimap) keys.push("minimap");
+  if (routeAhead) keys.push("route-ahead");
   return keys;
 }
 

@@ -280,6 +280,9 @@ export function restoreSettings() {
   if (typeof settings?.theaterHideMinimap === "boolean") {
     state.theaterHideMinimap = settings.theaterHideMinimap;
   }
+  if (typeof settings?.theaterHideRouteAhead === "boolean") {
+    state.theaterHideRouteAhead = settings.theaterHideRouteAhead;
+  }
 
   if (Array.isArray(settings?.hudFieldOrder)) {
     state.hudFieldOrder = normalizeHudOrder(settings.hudFieldOrder);
@@ -386,6 +389,7 @@ export function saveSettings() {
     theaterHideDemoChip: state.theaterHideDemoChip,
     theaterHideControls: state.theaterHideControls,
     theaterHideMinimap: state.theaterHideMinimap,
+    theaterHideRouteAhead: state.theaterHideRouteAhead,
     hudFieldOrder: [...state.hudFieldOrder],
     hudVisibleCount: state.hudVisibleCount,
     hudDockCollapsed: state.hudDockCollapsed,

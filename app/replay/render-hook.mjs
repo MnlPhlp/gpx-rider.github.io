@@ -3,16 +3,15 @@
 // exactly one frame at a time. Because every motion in the app reads
 // `nowMs()`, the ride, the camera chase, transition arcs and the finish orbit
 // all step deterministically — a video is identical however slowly frames are
-// grabbed. Two consumers: the in-browser stepped video export
-// (video-export.mjs) and, when app.html is opened with `?render=1`, the
-// headless batch renderer scripts/render_replay_video.py, for which this
-// module freezes the clock before any loop starts and publishes the same
-// steps on `window.gpxRiderRender`.
+// grabbed. Used by the headless batch renderer scripts/render_replay_video.py:
+// when app.html is opened with `?render=1`, this module freezes the clock
+// before any loop starts and publishes the steps on `window.gpxRiderRender`.
+// (The in-browser video export records in real time and does not use it.)
 
 import { applyCameraViewPreset } from "../camera/camera-ui.mjs";
 import { enterOverviewMode } from "../camera/overview-camera.mjs";
 import { advanceVirtualClock, enableVirtualClock } from "../core/clock.mjs";
-import { enterTheaterMode } from "../hud/theater-mode.mjs";
+import { enterTheaterMode, setRecordingViewportSize } from "../hud/theater-mode.mjs";
 import { pauseReplay, seekReplayToSeconds, setReplaySpeed, startReplay } from "./replay-mode.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
 import { applyDisplaySettings, syncDisplayControls } from "../settings/settings-ui.mjs";
@@ -26,6 +25,7 @@ const HIDE_FLAGS = {
   "demo-chip": "theaterHideDemoChip",
   controls: "theaterHideControls",
   minimap: "theaterHideMinimap",
+  "route-ahead": "theaterHideRouteAhead",
 };
 
 export function renderModeRequested() {
@@ -72,10 +72,7 @@ export function configureRecordingView({ hide = null, speed = null, camera = nul
     syncDisplayControls();
     applyDisplaySettings();
   }
-  if (Number(width) > 0 && Number(height) > 0) {
-    els.mapViewport.style.setProperty("--recording-viewport-w", `${Math.round(width)}px`);
-    els.mapViewport.style.setProperty("--recording-viewport-h", `${Math.round(height)}px`);
-  }
+  if (Number(width) > 0 && Number(height) > 0) setRecordingViewportSize(width, height);
   if (speed !== null) setReplaySpeed(Number(speed));
   if (camera !== null) applyCameraViewPreset(camera === "first-person" ? "firstPerson" : "default");
   if (!state.theaterMode) enterTheaterMode();
@@ -94,17 +91,12 @@ export function configureRecordingView({ hide = null, speed = null, camera = nul
 
 // Advances the app clock by one frame and lets every animation loop process
 // it: in the first animation frame the loops observe the new time and set
-// the map's camera, by the second the map has rendered it. `onRendered` runs
-// inside that second frame's callback — before the browser paints — so
-// anything it changes (the stepped export's frame tag) lands in the same
-// composited frame as the stepped state. Reports where the ride stands.
-export function stepAppClock(deltaMs, onRendered = null) {
+// the map's camera, by the second the map has rendered it. Reports where the
+// ride stands.
+export function stepAppClock(deltaMs) {
   advanceVirtualClock(deltaMs);
   return new Promise((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      onRendered?.();
-      resolve(renderStatus());
-    }));
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(renderStatus())));
   });
 }
 

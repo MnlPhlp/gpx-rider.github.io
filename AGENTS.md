@@ -48,20 +48,19 @@ pages, `styles.css`, `gallery.json`, and `assets/` stay at the app root.
 
 | Folder | Feature | Modules |
 |---|---|---|
-| `app/core/` | Shared foundation | `state.mjs` (the single mutable `state` object + `els` DOM map + `updateProgressLabel`; bottom of the feature import graph — must never import a feature module), `clock.mjs` (`nowMs()`, the app's monotonic clock every time-based motion reads instead of `performance.now()`; freezable/steppable for the frame-stepped video export — pure, no imports), `tuning.mjs` (loads and re-exports **all tunable behavior parameters** from `tuning.yaml` under their historical names — new knobs go in the yaml, not this file), `tuning.yaml` (the actual values + one documented comment each, shared with `scripts/tuning_config.py`), `yaml.mjs` (hand-rolled parser for the small YAML subset `tuning.yaml` uses; tested), `geo.mjs` (pure geodesy: haversine, bearing, destinationPoint, clamp, lerp; tested), `units.mjs` (km/mi + kcal/kJ display formatting; internal state is always metric; tested) |
-| `app/map/` | Map rendering | `map-init.mjs` (Maps API key resolution/saving, Google Maps JS loader, 3D map + minimap creation), `route-render.mjs` (elevated 3D route lines, rider dot mesh + fallback ring, rider beacon, minimap route/marker — see the rider-dot notes below), `route-style.mjs` (pure route segment styling), `screenshot.mjs` (viewport JPG via tab capture — the 3D canvas sits in a closed shadow root and cannot be read directly), `video-capture.mjs` (`openTabCapture`: the shared tab-capture → cropped canvas plumbing, plus the real-time MediaRecorder fallback recording; pure MIME/extension helpers tested), `stepped-video.mjs` (frame-stepped capture: takes the tab-capture frame carrying the current frame tag, WebCodecs H.264 encode with exact timestamps, MP4 mux via `app/vendor/mp4-muxer`), `frame-tag.mjs` (pure: a step index ⇄ a 4-level-per-channel color, the swatch the stepped export reads back to know which captured frame shows which step; tested), `terrain-tiles-math.mjs` (pure Web Mercator tile coords + Terrarium elevation decode; tested), `terrain-tiles.mjs` (fetches/decodes/LRU-caches online Mapzen Terrarium elevation tiles — see "Online terrain elevation" below) |
+| `app/core/` | Shared foundation | `state.mjs` (the single mutable `state` object + `els` DOM map + `updateProgressLabel`; bottom of the feature import graph — must never import a feature module), `clock.mjs` (`nowMs()`, the app's monotonic clock every time-based motion reads instead of `performance.now()`; freezable/steppable for the headless video renderer — pure, no imports), `tuning.mjs` (loads and re-exports **all tunable behavior parameters** from `tuning.yaml` under their historical names — new knobs go in the yaml, not this file), `tuning.yaml` (the actual values + one documented comment each, shared with `scripts/tuning_config.py`), `yaml.mjs` (hand-rolled parser for the small YAML subset `tuning.yaml` uses; tested), `geo.mjs` (pure geodesy: haversine, bearing, destinationPoint, clamp, lerp; tested), `units.mjs` (km/mi + kcal/kJ display formatting; internal state is always metric; tested) |
+| `app/map/` | Map rendering | `map-init.mjs` (Maps API key resolution/saving, Google Maps JS loader, 3D map + minimap creation), `route-render.mjs` (elevated 3D route lines, rider dot mesh + fallback ring, rider beacon, minimap route/marker — see the rider-dot notes below), `route-style.mjs` (pure route segment styling), `route-trail.mjs` (the recording view's ridden-only route line: the styled segments shown up to the rider, the cut polyline extended every `trail_update_meters`; the whole-route overview keeps the full route), `screenshot.mjs` (viewport JPG via tab capture — the 3D canvas sits in a closed shadow root and cannot be read directly), `video-capture.mjs` (`openTabCapture`: tab capture → the viewport drawn whole onto a canvas at the output size, plus `startViewportRecording`, the real-time MediaRecorder recording of it; pure MIME/extension helpers tested), `terrain-tiles-math.mjs` (pure Web Mercator tile coords + Terrarium elevation decode; tested), `terrain-tiles.mjs` (fetches/decodes/LRU-caches online Mapzen Terrarium elevation tiles — see "Online terrain elevation" below) |
 | `app/camera/` | Camera behavior | `camera.mjs` (pure follow-camera math; tested), `flyover.mjs` (pure orbit math; tested), `flyby.mjs` (pure ellipse/figure-eight flight math; tested), `follow-camera.mjs` (follow/first-person targets, chase flight, terrain avoidance, manual-drag capture), `overview-camera.mjs` (overview state machine: static/satellite framing, animated orbit/fly-by/fly-over, finish orbit, return-to-rider), `camera-ui.mjs` (map action-bar camera controls + menus, camera settings sliders, first-person preset, reset button state), `camera-debug.mjs` (debug overlay readout + red travel-path debug line), `transition-arc.mjs` (pure overview ↔ chase transition-arc math: Hermite/Bezier eye + look-at flight, duration solver against scale-aware physical limits; tested), `transition-camera.mjs` (app-side transition driver: captures pose + driver velocity, predicts the dock state, flies the arc into whichever target is in `arc_into_modes` — the follow camera (overview-off, movement-start, profile-seek teleport) or the fly-by/fly-over pattern; static/orbit/satellite overviews are never arced into) |
 | `app/route/` | Route processing | `route.mjs` (GPX parsing, enrichment, interpolation, grade; tested), `climb-signal.mjs` (pure resample/smooth/rolling-grade elevation-signal helpers behind climb detection; tested), `climbs.mjs` (sustained-climb detection — the fatigue-pressure state machine built on `climb-signal.mjs`; tested), `difficulty.mjs` (classification from distance + gain; tested), `route-load.mjs` (GPX file/URL intake, `applyGpxText` route-swap sequence, once-per-load route overview), `climbs-ui.mjs` (climb/segment focus, live climb status, the HUD climb/segment banner), `profile.mjs` (elevation profile canvas drawing + hit-testing), `profile-ui.mjs` (profile rendering + hover/seek/drag-select wiring) |
 | `app/ride/` | Ride execution & telemetry | `movement.mjs` (the movement loop `tick`, simulation toggle, pedaling hysteresis, reset, seek), `eta.mjs` (flat-equivalent pace ETA model; tested), `ride-ui.mjs` (`updateRideUi`, the per-tick UI driver), `telemetry-ui.mjs` (trainer/HR callbacks, HR source resolution, calories/timer, telemetry readouts), `training-zones.mjs` (HR/power zones, fullscreen zone meters, zone summaries), `recorder.mjs` (ride sample bucket), `recording-ui.mjs` (FIT card, download, clear), `fit.mjs` (FIT encoder — must stay sport=cycling, sub_sport=virtual_activity; tested) |
 | `app/trainer/` | Hardware | `trainer.mjs` (trainer pairing + reconnect + protocol detection; FTMS over Web Bluetooth: write queue, Indoor Bike Data; routes to the FE-C backend for Tacx), `trainer-fec.mjs` (Tacx FE-C over BLE backend: telemetry notifications + Track Resistance grade writes on service 6e40fec1), `fec.mjs` (pure ANT+ FE-C codec: ANT framing + page 16/25/51 encode/decode — tested), `heartrate.mjs` (BLE heart-rate strap, service 0x180D) |
 | `app/settings/` | Settings | `settings-ui.mjs` (settings dialog shell + the non-camera panels: units, rider profile, display & HUD toggles, rendering, screenshot settings — the camera panel lives in `camera/camera-ui.mjs`, the street imagery panel in `street-view/street-view-settings.mjs`) |
 | `app/storage/` | Storage & persistence | `storage.mjs` (IndexedDB behind a sync cache, localStorage fallback + migration; tested), `persistence.mjs` (`restoreSettings`/`saveSettings`, `restoreSavedRide`/`saveRide` — the one deliberately cross-cutting module) |
-| `app/hud/` | Shared HUD layout | `screen-manager.mjs` (**the central HUD layout manager** — see "Map HUD layout" below), `map-hud.mjs` (clock chip, HUD tile order/visibility + drag-reorder, tile layout, dock collapse, fullscreen enter/exit, map screenshot action), `theater-mode.mjs` (exact-size recording viewport) |
+| `app/hud/` | Shared HUD layout | `screen-manager.mjs` (**the central HUD layout manager** — see "Map HUD layout" below), `map-hud.mjs` (clock chip, HUD tile order/visibility + drag-reorder, tile layout, dock collapse, fullscreen enter/exit, map screenshot action), `theater-mode.mjs` (exact-size recording viewport, scaled down uniformly to fit a small window; the toolbar's reserved space) |
 | `app/gallery-ui/` | Gallery | `gallery.mjs` (fullscreen ride-gallery overlay; cards from `app/gallery.json`, per-card on-demand 3D preview via each route's `metadata.json#previewCamera`), `gallery-export.mjs` (Export to gallery card: metadata.json snippet with the live camera, clipboard copy) |
 | `app/landing/` | Landing page | `landing.mjs` (public landing page behavior: hero replay over a live 3D map with a faked HUD, then summit orbit, loops; knobs in `LANDING_HERO`, `core/tuning.mjs`), `landing-route.mjs` (static route data the hero replays — marketing data, not app runtime) |
 | `app/demo/` | Demo mode | `demo.mjs` (pure synthetic trainer/HR ride model; tested), `demo-mode.mjs` (demo mode UI: drives the ride from the model, demo chip sync) |
-| `app/replay/` | Ride replay & video export | `fit-decode.mjs` (pure minimal FIT activity decoder — record messages, compressed timestamps, developer fields skipped; tested against `ride/fit.mjs`'s output), `ride-timeline.mjs` (pure model of a recorded ride: ride time with stops squeezed out, distance/telemetry/calories at any elapsed, inverse lookup by distance, profile history, compact (de)serialization; tested), `strava-link.mjs` (pure Strava activity URL parsing + export URL templates; tested), `replay-load.mjs` (recorded-ride intake from FIT or timestamped GPX, replay persistence `gpx-rider:replay`, the Strava link row, the Ride replay card), `replay-mode.mjs` (playback: the replay as a movement source via `advanceReplay`, telemetry into the trainer/strap state fields, transport controls in card + toolbar), `render-hook.mjs` (deterministic render steps: configure the recording view, `stepAppClock` one frame, `waitForMapSteady`; publishes them on `window.gpxRiderRender` under `?render=1` for the headless script), `render-command.mjs` (pure: the headless renderer's command line from the preview's choices; tested), `video-export.mjs` (the recording view's export: camera choice, "Copy render command", and "Record video" — the frame-stepped in-browser export, with the real-time MediaRecorder fallback) |
-| `app/vendor/` | Vendored libraries | `mp4-muxer/` (mp4-muxer 5.2.1 ES module build, MIT — the MP4 container writer for the stepped video export; license in `THIRD_PARTY_NOTICES.md`) |
+| `app/replay/` | Ride replay & video export | `fit-decode.mjs` (pure minimal FIT activity decoder — record messages, compressed timestamps, developer fields skipped; tested against `ride/fit.mjs`'s output), `ride-timeline.mjs` (pure model of a recorded ride: ride time with stops squeezed out, distance/telemetry/calories at any elapsed, inverse lookup by distance, profile history, compact (de)serialization; tested), `strava-link.mjs` (pure Strava activity URL parsing + export URL templates; tested), `replay-load.mjs` (recorded-ride intake from FIT or timestamped GPX, replay persistence `gpx-rider:replay`, the Strava link row, the Ride replay card), `replay-mode.mjs` (playback: the replay as a movement source via `advanceReplay`, telemetry into the trainer/strap state fields, transport controls in card + toolbar), `render-hook.mjs` (deterministic render steps: configure the recording view, `stepAppClock` one frame, `waitForMapSteady`; publishes them on `window.gpxRiderRender` under `?render=1` for the headless script), `render-command.mjs` (pure: the headless renderer's command line from the preview's choices; tested), `video-export.mjs` (the recording view's export: camera choice, "Copy render command", and "Record video" — the real-time in-browser recording with intro/outro and the REC chip) |
 | `app/street-view/` | Street imagery | `frame-index.mjs` (pure route-distance index of imagery frames: spatial-grid projection onto the route, heading-usability filter, `frameForProgress` selection with midpoint hysteresis + dwell, coverage runs; tested), `scan-boxes.mjs` (pure: global-grid search cells along a route, lookahead-first order, quadrant subdivision, Mapillary entity → candidate; tested), `mapillary-source.mjs` (Graph API scan of a route's cells → candidates; fetch pool, subdivide-on-cap, abort, per-cell session cache, typed token error; tested with a fake fetch), `playback-plan.mjs` (pure: the chain of frames a route plays, link classification parallax/cut/gap from image metadata, route position → link + fraction, prefetch window, route plan key; tested), `imagery-store.mjs` (per-image metadata in batches, mesh/photo bytes, IndexedDB cache of plans + bytes with LRU eviction, expired-URL retry, bisect on a refused batch; tested with a fake fetch + in-memory adapter), `sfm-math.mjs` (pure: column-major mat4/vec3, Rodrigues, lookAt/perspective, Catmull-Rom, WGS84⇄ECEF⇄ENU; tested), `sfm-camera.mjs` (pure: one image's camera model — pose, perspective/fisheye/spherical projection with distortion and radial peak, EXIF orientation, basic⇄SfM coordinates, vertical FOV fit, synthesized pose, parallax pair test; tested), `sfm-mesh.mjs` (pure: mesh protobuf decode, vertex clamping, flat plane/sphere fallback, mesh-inside-photo self-check; tested), `sfm-path.mjs` (pure: camera between two poses, linear or Catmull-Rom; tested), `sfm-shaders.mjs` (the projective-texturing GLSL), `sfm-gl.mjs` (WebGL2 wrapper: programs, geometry/texture uploads, draw passes, snapshot cross-fade), `sfm-nodes.mjs` (GPU node cache: photo + mesh → transform/geometry/texture per plan entry, dedupe/abort, LRU eviction, the mesh self-check), `sfm-renderer.mjs` (the renderer: position-driven camera + three-pass blend, cuts, readiness/hold rules, prefetch, attribution), `street-view-plan.mjs` (route lifecycle: cached plan or scan, interim/final plan builds, coverage summary, the asset store), `street-view-ui.mjs` (coordinator: layer + fade, HUD chip, route identity, own refresh loop, renderer mount, `state.streetImagery`), `street-view-settings.mjs` (settings tab sync/apply + coverage/token/cache readouts), `contribute-ui.mjs` (the "Contribute your own imagery" guide dialog). Portions of the `sfm-*` modules are ported from MapillaryJS (MIT) — see `THIRD_PARTY_NOTICES.md`. `route/gpx-export.mjs` (pure GPX serializer; tested) backs its GPX download. |
 
 ## Code organization system — how to keep this codebase clean
@@ -227,47 +226,46 @@ in place).
   preview *is* theater mode — the viewport pinned at the recording size, the
   toolbar's "hide in recording view" toggles, speed select and camera select
   (angled follow by default, first person optional; entering the view applies
-  it) deciding what the video shows. "Record video" renders **frame-stepped
-  and pipelined**: the app clock (`core/clock.mjs` — every motion reads
-  `nowMs()`, never `performance.now()` directly; keep it that way) is frozen,
-  and the producer in `video-export.mjs#runSteppedExport` advances it by
-  `1000/frame_rate` once per *presented tab-capture frame*
-  (`recorder.onPresented`), stamping that step's **frame tag** in the next rAF
-  (where the loops have set the camera and the map renders, before paint): a
-  12 px swatch fixed in the window's top-left corner, on the backdrop outside
-  the recorded viewport, colored by `map/frame-tag.mjs`. The consumer loop in
-  `map/stepped-video.mjs` reads the swatch back from every presented capture
-  frame (`getDisplayMedia` — the screenshot's approach; the 3D canvas cannot
-  be read — through `map/video-capture.mjs#openTabCapture`, cropped to the
-  viewport and the `ride_replay.video` aspect at `output_width`) and encodes
-  the frame as the step its tag names (a step the capture dropped is filled
-  with the next frame and counted in `tagMisses`), wrapping it in a WebCodecs
-  `VideoFrame` stamped `step/fps`, H.264, muxed by the vendored mp4-muxer as a
-  **fragmented MP4 streamed into Blob parts** (`StreamTarget`, `fastStart:
-  "fragmented"`; an in-memory target failed with "Array buffer allocation
-  failed" on a long ride — fragmented writes are sequential and blob storage
-  pages to disk, so file size is bounded by disk, not RAM). Up to
-  `pipeline_depth` steps are in flight, so render, capture
-  latency and encode overlap. Pacing on captured frames is essential: stepping
-  every rAF produced steps the capture never showed (half the frames were
-  duplicates). The ceiling is the capture rate, i.e. the display's refresh
-  rate: 60 Hz → a 30 fps video at ≤ 2× real time. Never block the export on
-  `isSteady`/`gmp-steadychange` (a moving camera is rarely steady; a 400 ms
-  wait made exports crawl at 3 fps) — `steady_timeout_ms` is 0 and only the
-  headless script's `waitForMapSteady` honors it. The encoder runs in
-  `encoder_latency_mode: "realtime"`: desktop Chrome usually has no hardware
-  H.264 (never on Linux), and software encoding in "quality" mode throttles
-  to ~16 fps at 1080p and starves the map's WASM renderer (measured: map
-  43 → 34 fps; the user saw 15 fps exports) — "realtime" keeps up with 30 fps
-  and leaves the map alone. A live tab capture itself does *not* slow the map
-  (measured). Without WebCodecs the
-  real-time `MediaRecorder` fallback (`startViewportRecording`) runs instead.
-  Both open on the route overview for `intro_seconds`, play from the start,
-  continue through the finish-line orbit for `outro_seconds`, then download;
-  Stop & save, the browser's "Stop sharing" bar, and leaving theater mode end
-  early and save. The viewport carries `capturing` meanwhile (our buttons out,
-  Google attribution in); the REC chip shows render progress. The same steps
-  back the optional **headless batch renderer** `scripts/render_replay_video.py`
+  it) deciding what the video shows. "Record video" records that viewport
+  **in real time**: the browser's tab capture (`getDisplayMedia` — the
+  screenshot's approach; the 3D canvas cannot be read) through
+  `map/video-capture.mjs#openTabCapture`, cropped to the viewport element by
+  Region Capture (`CropTarget` + `track.cropTo`, exact at device pixels;
+  older browsers fall back to mapping the viewport's rectangle onto the
+  frame) and drawn *whole* onto a canvas at `ride_replay.video.output_width`
+  with the recording size's aspect (`recordingViewportAspect`; theater mode
+  scales the viewport down uniformly in a small window, never clamps one
+  side, so the HUD at its edges is always in the video — an earlier center
+  crop to a fixed aspect cut it off), recorded by a `MediaRecorder` (`startViewportRecording`; current
+  Chrome writes MP4/H.264, older ones WebM, per `mime_preferences`). Chrome
+  keeps rendering a captured tab, so the tab may go to the background. It
+  opens on the route overview for `intro_seconds`, plays from the start,
+  continues through the finish-line orbit for `outro_seconds`
+  (`handleReplayFinishedWhileRecording`), then downloads; Stop & save, the
+  browser's "Stop sharing" bar, and leaving theater mode end early and save.
+  The viewport carries `capturing` meanwhile (our buttons out, Google
+  attribution in); the REC chip shows progress and file size. The toolbar's
+  hide list also has **Route ahead** (on by default,
+  `theater_hide.route_ahead`): in the recording view the 3D route line is
+  then the **route trail** (`map/route-trail.mjs`) — `renderRouteLines` hands
+  its styled segments to `setRouteTrailSegments` instead of appending them,
+  and `updateRouteTrail` (called per tick from `updateRideUi` and from
+  `syncOverviewControls`) shows the segments behind the rider whole, cuts the
+  one the rider is on at the interpolated rider point (rebuilt only every
+  `route_line.trail_update_meters` — re-tessellating a polyline per frame is
+  not free), and keeps the rest off the map, so the position is easy to
+  follow; while the whole-route overview (`overviewActive` or `cameraMode ===
+  "overview"`) frames the route, the full line shows, since there the line
+  is the information. Entering/leaving theater mode and the toggle rebuild
+  the line via `rebuildRouteStyle`. The minimap always draws the whole route.
+  A frame-stepped export (frozen app clock, one step per captured frame tagged
+  by a color swatch, WebCodecs + a vendored MP4 muxer) was built and removed
+  again: a tab capture never delivers more frames than the display refreshes
+  and the map draws, so it topped out at 1–2× real time for much more
+  machinery — don't rebuild it; the app clock (`core/clock.mjs` — every
+  motion reads `nowMs()`, never `performance.now()` directly; keep it that
+  way) stays for the optional **headless batch renderer**
+  `scripts/render_replay_video.py`
   (Playwright for Python + ffmpeg; `?render=1` publishes
   `window.gpxRiderRender`; needs a Vulkan-reachable GPU since Chrome 154 has no
   software WebGL; serves on port 5173 like `make run` because a

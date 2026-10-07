@@ -1,32 +1,26 @@
 // Video export of a ride replay — the recording view's export tooling. The
 // "preview" is theater mode itself: the viewport pinned to the recording
 // size, the toolbar's overlay toggles, speed and camera deciding what the
-// video shows. "Record video" then renders it right here:
-//
-// - **Stepped export** (the normal path, needs WebCodecs): the app clock is
-//   frozen and advanced one frame at a time (render-hook.mjs); after each
-//   step the export waits for the 3D map to report a steady frame, grabs
-//   that frame from the tab capture and encodes it with an exact timestamp
-//   (map/stepped-video.mjs). The ride, camera and HUD move deterministically
-//   and the video renders as fast as frames can be captured — a long ride at
-//   a high playback multiplier takes minutes, not hours — with no screen
-//   recording running in real time.
-// - **Real-time fallback** (no WebCodecs): the viewport is recorded live
-//   through a MediaRecorder (map/video-capture.mjs) while the replay plays.
-//
-// Both open on the route overview for an intro, play the replay from the
-// start, keep rolling through the finish-line orbit for an outro, then save.
-// The viewport carries the `capturing` class meanwhile so our own buttons
-// stay out of the video (Google's attribution always stays in). "Copy render
-// command" hands the same choices to the optional headless batch renderer
+// video shows. "Record video" then records exactly that viewport in real
+// time through the browser's tab capture and a MediaRecorder
+// (map/video-capture.mjs) while the replay plays: it opens on the route
+// overview for an intro, plays the replay from the start, keeps rolling
+// through the finish-line orbit for an outro, then saves the file. Chrome
+// keeps rendering a captured tab, so the tab may go to the background
+// meanwhile. The viewport carries the `capturing` class while recording so
+// our own buttons stay out of the video (Google's attribution always stays
+// in); the REC chip shows the progress. "Copy render command" hands the same
+// choices to the optional headless batch renderer
 // (scripts/render_replay_video.py).
+//
+// A frame-stepped export (frozen app clock, one step per captured frame,
+// WebCodecs) was built first and removed again: a tab capture never delivers
+// more frames than the display refreshes and the 3D map draws, so it topped
+// out at 1–2× real time for considerably more machinery.
 
 import { applyCameraViewPreset } from "../camera/camera-ui.mjs";
 import { enterOverviewMode } from "../camera/overview-camera.mjs";
-import { advanceVirtualClock, disableVirtualClock, enableVirtualClock } from "../core/clock.mjs";
-import { enterTheaterMode } from "../hud/theater-mode.mjs";
-import { parseAspectRatio } from "../map/screenshot.mjs";
-import { startSteppedRecording, steppedVideoSupported } from "../map/stepped-video.mjs";
+import { enterTheaterMode, recordingViewportAspect } from "../hud/theater-mode.mjs";
 import {
   downloadVideoBlob,
   startViewportRecording,
@@ -34,15 +28,17 @@ import {
   videoFileExtension,
 } from "../map/video-capture.mjs";
 import { buildRenderCommand, hiddenOverlayKeys } from "./render-command.mjs";
-import { renderStatus } from "./render-hook.mjs";
 import { pauseReplay, seekReplayToSeconds, startReplay } from "./replay-mode.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
 import { els, state, updateProgressLabel } from "../core/state.mjs";
 import { RIDE_REPLAY_VIDEO } from "../core/tuning.mjs";
 import { formatDuration } from "../core/units.mjs";
 
+// How often the REC chip's progress readout refreshes.
+const RECORD_STATUS_INTERVAL_MS = 1000;
+
 export function videoExportSupported() {
-  return steppedVideoSupported() || videoCaptureSupported();
+  return videoCaptureSupported();
 }
 
 // --- Camera choice & the headless render command --------------------------------
@@ -75,6 +71,7 @@ export async function copyRenderCommand() {
       demoChip: state.theaterHideDemoChip,
       controls: state.theaterHideControls,
       minimap: state.theaterHideMinimap,
+      routeAhead: state.theaterHideRouteAhead,
     }),
     speed: state.replay.speed,
     camera: selectedReplayCamera(),
@@ -114,26 +111,20 @@ export async function startReplayVideoExport() {
   enterOverviewMode({ instant: true });
   updateRideUi({ force: true });
 
-  const stepped = steppedVideoSupported();
   replay.exportStarting = true;
   syncRecordButton();
-  updateProgressLabel("Choose “This Tab” in the share dialog to start the export…");
-  const options = {
-    aspectRatio: parseAspectRatio(RIDE_REPLAY_VIDEO.aspect),
-    outputWidth: RIDE_REPLAY_VIDEO.output_width,
-    frameRate: RIDE_REPLAY_VIDEO.frame_rate,
-    captureFrameRate: RIDE_REPLAY_VIDEO.capture_frame_rate,
-    videoBitsPerSecond: RIDE_REPLAY_VIDEO.bits_per_second,
-    latencyMode: RIDE_REPLAY_VIDEO.encoder_latency_mode,
-    mimeTypePreferences: RIDE_REPLAY_VIDEO.mime_preferences,
-    onMessage: updateProgressLabel,
-    // The browser's own "Stop sharing" bar ends the export too.
-    onEnded: () => { void stopReplayVideoExport(); },
-  };
+  updateProgressLabel("Choose “This Tab” in the share dialog to start recording…");
   try {
-    replay.recorder = stepped
-      ? await startSteppedRecording(els.mapViewport, options)
-      : await startViewportRecording(els.mapViewport, options);
+    replay.recorder = await startViewportRecording(els.mapViewport, {
+      outputWidth: RIDE_REPLAY_VIDEO.output_width,
+      outputAspect: recordingViewportAspect(),
+      frameRate: RIDE_REPLAY_VIDEO.frame_rate,
+      videoBitsPerSecond: RIDE_REPLAY_VIDEO.bits_per_second,
+      mimeTypePreferences: RIDE_REPLAY_VIDEO.mime_preferences,
+      onMessage: updateProgressLabel,
+      // The browser's own "Stop sharing" bar ends the export too.
+      onEnded: () => { void stopReplayVideoExport(); },
+    });
   } catch (error) {
     replay.exportStarting = false;
     syncRecordButton();
@@ -148,118 +139,40 @@ export async function startReplayVideoExport() {
 
   replay.exportStarting = false;
   replay.recording = true;
-  replay.stepped = stepped;
   els.mapViewport.classList.add("capturing");
   syncRecordButton();
 
-  if (stepped) {
-    updateProgressLabel("Rendering the video frame by frame — keep this tab visible; press Stop & save to end early.");
-    runSteppedExport(replay.recorder);
-    return;
-  }
   const { outputWidth, outputHeight } = replay.recorder;
-  updateProgressLabel(`Recording ${outputWidth}×${outputHeight} in real time — press Stop & save any time.`);
+  updateProgressLabel(
+    `Recording ${outputWidth}×${outputHeight} in real time — the tab may go to the background; press Stop & save any time.`,
+  );
+  replay.statusTimer = window.setInterval(updateRecordStatus, RECORD_STATUS_INTERVAL_MS);
+  updateRecordStatus();
   // A short still of the overview before the ride begins.
   window.setTimeout(() => {
     if (state.replay.recording) startReplay();
   }, RIDE_REPLAY_VIDEO.intro_seconds * 1000);
 }
 
-// The producer of the stepped export. It is paced by the tab capture itself:
-// every presented capture frame (`recorder.onPresented`) may advance the app
-// clock by one video frame — intro still, the ride, the outro — and the
-// step's tag is stamped in the next animation frame, where its render lands.
-// Steps are therefore never produced faster than the capture can show them
-// (a surplus step would simply never be captured), while up to
-// `pipeline_depth` steps stay in flight so render, capture latency and
-// encoding overlap instead of being waited out one after another. The
-// ceiling is the display's refresh rate: a 60 Hz capture yields a 30 fps
-// video at about twice real time. Keep the tab visible meanwhile — a hidden
-// tab stops both animation frames and capture frames.
-function runSteppedExport(recorder) {
+// The REC chip carries the recording's progress: how far the ride is, and
+// the file size so far. The status line under the progress bar keeps showing
+// the ride readout.
+function updateRecordStatus() {
   const replay = state.replay;
-  const fps = RIDE_REPLAY_VIDEO.frame_rate;
-  const frameMs = 1000 / fps;
-  const depth = Math.max(1, RIDE_REPLAY_VIDEO.pipeline_depth);
-  const introSteps = Math.round(RIDE_REPLAY_VIDEO.intro_seconds * fps);
-  const outroSteps = Math.round(RIDE_REPLAY_VIDEO.outro_seconds * fps);
-  const active = () => replay.recording && replay.recorder === recorder;
-  const startedAt = performance.now();
-  let lastReportAt = 0;
-  let step = 0;
-  let rideStarted = false;
-  let outroLeft = null;
-  let doneProducing = false;
-
-  const produceStep = () => {
-    advanceVirtualClock(frameMs);
-    const produced = step;
-    step += 1;
-    if (outroLeft !== null) outroLeft -= 1;
-    // The app's loops (registered before this callback) process the new time
-    // in the next animation frame; stamping the tag there, before paint, puts
-    // it in the same composited frame as that render.
-    requestAnimationFrame(() => recorder.tagStep(produced));
-  };
-
-  enableVirtualClock();
-  recorder.onPresented = () => {
-    if (!active()) {
-      recorder.onPresented = null;
-      disableVirtualClock();
-      return;
-    }
-    if (recorder.error) {
-      console.error("Stepped video export failed.", recorder.error);
-      updateProgressLabel(`Video export failed — ${recorder.error.message ?? recorder.error}`);
-      recorder.onPresented = null;
-      disableVirtualClock();
-      void stopReplayVideoExport();
-      return;
-    }
-
-    const status = renderStatus();
-    if (!doneProducing) {
-      if (!rideStarted && step >= introSteps) {
-        startReplay();
-        rideStarted = true;
-      }
-      if (rideStarted && outroLeft === null && status.finished) outroLeft = outroSteps;
-      if (outroLeft === 0) {
-        doneProducing = true;
-      } else if (recorder.inFlight < depth && !recorder.busy) {
-        produceStep();
-      }
-    }
-
-    const now = performance.now();
-    if (now - lastReportAt > 1000) {
-      lastReportAt = now;
-      const captureFps = recorder.frames / Math.max(0.001, (now - startedAt) / 1000);
-      const done = status.durationSeconds ? status.elapsedSeconds / status.durationSeconds : 0;
-      // The REC chip carries the render progress; the status line under the
-      // progress bar keeps showing the ride readout.
-      setRecordStatus(
-        `REC ${Math.round(done * 100)}% · ${formatDuration(status.elapsedSeconds, "clock")} of `
-          + `${formatDuration(status.durationSeconds, "clock")} · ${captureFps.toFixed(0)} fps · `
-          + `${(recorder.bytes / 1_048_576).toFixed(0)} MB`,
-      );
-    }
-
-    if (doneProducing && recorder.inFlight === 0) {
-      recorder.onPresented = null;
-      disableVirtualClock();
-      void stopReplayVideoExport();
-    }
-  };
+  if (!replay.recording || !replay.recorder) return;
+  const duration = replay.timeline?.durationSeconds ?? 0;
+  const done = duration > 0 ? Math.min(1, replay.elapsedSeconds / duration) : 0;
+  setRecordStatus(
+    `REC ${Math.round(done * 100)}% · ${formatDuration(replay.elapsedSeconds, "clock")} of `
+      + `${formatDuration(duration, "clock")} · ${(replay.recorder.bytes / 1_048_576).toFixed(0)} MB`,
+  );
 }
 
-// The replay reached the finish while recording in real time: let the
-// finish-line orbit play for the outro, then save. (The stepped export runs
-// its own outro frames.)
+// The replay reached the finish while recording: let the finish-line orbit
+// play for the outro, then save.
 export function handleReplayFinishedWhileRecording() {
   const replay = state.replay;
-  if (!replay.recording || replay.stepped || replay.outroTimer) return;
+  if (!replay.recording || replay.outroTimer) return;
   replay.outroTimer = window.setTimeout(() => {
     replay.outroTimer = null;
     void stopReplayVideoExport();
@@ -270,31 +183,24 @@ export async function stopReplayVideoExport() {
   const replay = state.replay;
   if (!replay.recording || !replay.recorder) return;
   const recorder = replay.recorder;
-  const stepped = replay.stepped;
   replay.recording = false;
   replay.recorder = null;
-  replay.stepped = false;
   window.clearTimeout(replay.outroTimer);
   replay.outroTimer = null;
+  window.clearInterval(replay.statusTimer);
+  replay.statusTimer = null;
   els.mapViewport.classList.remove("capturing");
-  disableVirtualClock();
   pauseReplay({ silent: true });
   syncRecordButton();
   updateProgressLabel("Finishing the video…");
 
-  const blob = stepped ? await recorder.finish() : await recorder.stop();
+  const blob = await recorder.stop();
   if (!blob || blob.size === 0) {
     updateProgressLabel("The recording came out empty — nothing was saved.");
     return;
   }
-  if (stepped && recorder.tagMisses > 0) {
-    console.warn(`Stepped export: ${recorder.tagMisses} of ${recorder.frames} frames were taken without seeing their frame tag.`);
-  }
-  downloadVideoBlob(blob, videoFileName(stepped ? "video/mp4" : recorder.mimeType));
-  const seconds = stepped ? recorder.frames / RIDE_REPLAY_VIDEO.frame_rate : null;
-  updateProgressLabel(
-    `Video saved (${(blob.size / 1_048_576).toFixed(1)} MB${seconds ? `, ${formatDuration(seconds, "clock")}` : ""}).`,
-  );
+  downloadVideoBlob(blob, videoFileName(recorder.mimeType));
+  updateProgressLabel(`Video saved (${(blob.size / 1_048_576).toFixed(1)} MB).`);
 }
 
 function videoFileName(mimeType) {
@@ -335,9 +241,7 @@ export function syncRecordButton() {
   button.classList.toggle("recording", replay.recording);
   button.setAttribute("aria-pressed", String(replay.recording));
   button.textContent = replay.recording ? "Stop & save" : replay.exportStarting ? "Starting…" : "Record video";
-  button.title = steppedVideoSupported()
-    ? "Render the replay to an MP4 right here: frame by frame, as fast as the map can draw"
-    : "Record the replay here in real time (this browser lacks WebCodecs for the fast export)";
+  button.title = "Record the replay as a video right here, in real time (share “This Tab” when asked)";
   if (els.replayRecordStatus) {
     els.replayRecordStatus.hidden = !replay.recording;
   }

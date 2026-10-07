@@ -234,6 +234,7 @@ function bindEvents() {
   els.theaterHideDemoChipInput.addEventListener("change", updateDisplaySettingsFromControls);
   els.theaterHideControlsInput.addEventListener("change", updateDisplaySettingsFromControls);
   els.theaterHideMinimapInput.addEventListener("change", updateDisplaySettingsFromControls);
+  els.theaterHideRouteAheadInput.addEventListener("change", updateDisplaySettingsFromControls);
   els.cameraDebugCollapseBtn.addEventListener("click", toggleCameraDebugCollapsed);
   els.hudLessBtn.addEventListener("click", () => adjustHudVisibleCount(-1));
   els.hudMoreBtn.addEventListener("click", () => adjustHudVisibleCount(1));

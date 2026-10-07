@@ -156,6 +156,7 @@ export function updateDisplaySettingsFromControls() {
   state.theaterHideDemoChip = els.theaterHideDemoChipInput.checked;
   state.theaterHideControls = els.theaterHideControlsInput.checked;
   state.theaterHideMinimap = els.theaterHideMinimapInput.checked;
+  state.theaterHideRouteAhead = els.theaterHideRouteAheadInput.checked;
   saveSettings();
   applyDisplaySettings();
 }
@@ -171,6 +172,7 @@ export function syncDisplayControls() {
   els.theaterHideDemoChipInput.checked = state.theaterHideDemoChip;
   els.theaterHideControlsInput.checked = state.theaterHideControls;
   els.theaterHideMinimapInput.checked = state.theaterHideMinimap;
+  els.theaterHideRouteAheadInput.checked = state.theaterHideRouteAhead;
   renderHudOrderControls();
 }
 
@@ -191,6 +193,12 @@ function applyTheaterHudToggles() {
   els.mapViewport.classList.toggle("theater-hide-demo-chip", state.theaterHideDemoChip);
   els.mapViewport.classList.toggle("theater-hide-controls", state.theaterHideControls);
   els.mapViewport.classList.toggle("theater-hide-minimap", state.theaterHideMinimap);
+  // The route-ahead toggle is not CSS: the 3D route line is rebuilt as the
+  // trail or the whole route (the class only remembers the last applied
+  // value, so the rebuild runs on an actual change).
+  const trailWas = els.mapViewport.classList.contains("theater-hide-route-ahead");
+  els.mapViewport.classList.toggle("theater-hide-route-ahead", state.theaterHideRouteAhead);
+  if (trailWas !== state.theaterHideRouteAhead && state.theaterMode) rebuildRouteStyle();
 }
 
 function applyMapMode() {

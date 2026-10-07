@@ -24,5 +24,6 @@ test("file names with spaces are quoted for the shell", () => {
 
 test("theater hide flags map to the script's overlay keys in a fixed order", () => {
   assert.deepEqual(hiddenOverlayKeys({ minimap: true, clock: true, climbBanner: true }), ["clock", "climb-banner", "minimap"]);
+  assert.deepEqual(hiddenOverlayKeys({ routeAhead: true, minimap: true }), ["minimap", "route-ahead"]);
   assert.deepEqual(hiddenOverlayKeys(), []);
 });

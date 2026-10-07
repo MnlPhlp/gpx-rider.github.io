@@ -45,6 +45,7 @@ import {
   DEFAULT_THEATER_HIDE_DOCK,
   DEFAULT_THEATER_HIDE_METERS,
   DEFAULT_THEATER_HIDE_MINIMAP,
+  DEFAULT_THEATER_HIDE_ROUTE_AHEAD,
   DEFAULT_TIME_FORMAT,
 } from "./tuning.mjs";
 
@@ -68,6 +69,9 @@ export const state = {
   tickTimeout: null,
   lastTick: 0,
   routeLines: [],
+  // The recording view's ridden-only route line (map/route-trail.mjs): its
+  // segments, their polylines and the progress it was last cut at.
+  routeTrail: null,
   riderDot: null,
   riderBeacon: null,
   map: null,
@@ -179,6 +183,7 @@ export const state = {
   theaterHideDemoChip: DEFAULT_THEATER_HIDE_DEMO_CHIP,
   theaterHideControls: DEFAULT_THEATER_HIDE_CONTROLS,
   theaterHideMinimap: DEFAULT_THEATER_HIDE_MINIMAP,
+  theaterHideRouteAhead: DEFAULT_THEATER_HIDE_ROUTE_AHEAD,
   distanceUnits: "metric",
   energyUnits: "kcal",
   timeFormat: DEFAULT_TIME_FORMAT,
@@ -236,8 +241,9 @@ export const state = {
   // ride-timeline.mjs model (null for a plain planned route), `elapsedSeconds`
   // the playhead in ride time, `playing` makes the replay the movement source
   // (see movement.mjs#isMoving), `speed` the playback multiplier. The video
-  // export keeps its capture controller in `recorder` while a recording runs;
-  // `outroTimer` is the finish-orbit tail before the file is saved.
+  // export keeps its capture controller in `recorder` while a recording runs,
+  // `statusTimer` refreshes the REC chip's progress, and `outroTimer` is the
+  // finish-orbit tail before the file is saved.
   replay: {
     timeline: null,
     sourceName: null,
@@ -249,10 +255,8 @@ export const state = {
     lastTelemetryIndex: -1,
     recorder: null,
     recording: false,
-    // true while the export steps the app clock frame by frame (WebCodecs
-    // path), false for the real-time MediaRecorder fallback.
-    stepped: false,
     exportStarting: false,
+    statusTimer: null,
     outroTimer: null,
   },
   cameraDebugEnabled: DEFAULT_CAMERA_DEBUG_ENABLED,
@@ -361,6 +365,7 @@ export const els = {
   theaterHideDemoChipInput: document.querySelector("#theaterHideDemoChipInput"),
   theaterHideControlsInput: document.querySelector("#theaterHideControlsInput"),
   theaterHideMinimapInput: document.querySelector("#theaterHideMinimapInput"),
+  theaterHideRouteAheadInput: document.querySelector("#theaterHideRouteAheadInput"),
   demoBanner: document.querySelector("#demoBanner"),
   restingHeartRateInput: document.querySelector("#restingHeartRateInput"),
   maxHeartRateInput: document.querySelector("#maxHeartRateInput"),

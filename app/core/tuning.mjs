@@ -199,6 +199,7 @@ export const ROUTE_FOCUS_LINE_WIDTH = req("route_line", "focus_line_width");
 export const ROUTE_FOCUS_OUTER_COLOR = req("route_line", "focus_outer_color");
 export const ROUTE_FOCUS_OUTER_WIDTH = req("route_line", "focus_outer_width");
 export const ROUTE_LINE_SPACING_METERS = req("route_line", "spacing_meters");
+export const ROUTE_TRAIL_UPDATE_METERS = req("route_line", "trail_update_meters");
 export const ROUTE_LINE_MAX_POINTS = req("route_line", "max_points");
 
 // Gallery previews & mini profiles
@@ -228,6 +229,7 @@ export const DEFAULT_THEATER_HIDE_CLIMB_BANNER = req("recording", "theater_hide"
 export const DEFAULT_THEATER_HIDE_DEMO_CHIP = req("recording", "theater_hide", "demo_chip");
 export const DEFAULT_THEATER_HIDE_CONTROLS = req("recording", "theater_hide", "controls");
 export const DEFAULT_THEATER_HIDE_MINIMAP = req("recording", "theater_hide", "minimap");
+export const DEFAULT_THEATER_HIDE_ROUTE_AHEAD = req("recording", "theater_hide", "route_ahead");
 
 // Display & HUD defaults
 export const DEFAULT_SHOW_MINIMAP = req("display_hud", "show_minimap");
