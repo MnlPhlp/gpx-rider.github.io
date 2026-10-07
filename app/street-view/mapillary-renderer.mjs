@@ -3,23 +3,28 @@
 // the single Viewer instance, and implements the *renderer* half of the
 // provider contract the coordinator (street-view-ui.mjs) talks to:
 //
-//   renderer: { mount(container) → Promise, showFrame(frame, { headingDeg, speedMps }),
-//               setMotionSpeed(coefficient), setApproach(fraction), setVisible(bool),
-//               resize(), unmount() }
-//   plus an `onMotion(inMotion)` callback so the coordinator knows when a
-//   transition is running.
+//   renderer: { mount(container) → Promise,
+//               showFrame(frame)        — hard cut: start a fresh trajectory at this image
+//               queueFrame(frame)       — follow-on image appended behind the running transition
+//               pace({ progressMeters, speedMps }) — tracking controller (see below)
+//               currentRef()            — ref of the image on screen / being transitioned to
+//               setApproach(fraction), setVisible(bool), resize(), unmount() }
+//   callbacks: onError(error), onMotion(inMotion)
 //
-// setMotionSpeed reaches into MapillaryJS internals (the navigator's state
-// service `setSpeed`, a 0–10 coefficient on the traversing animation; the
-// viewer has no public API for it). The version is pinned in tuning.yaml and
-// the call is guarded, so a future bundle without it degrades to the
-// viewer's fixed-pace transitions instead of breaking.
-//
-// A <video>-based renderer for a future "replay my own ride" source would
-// implement the same shape (using speedMps to pace playback; ignored here).
-// IO only: no app state — the token and the street_imagery config are passed
-// in. Frames are shown by Mapillary image id (frame.ref); for 360° images the
-// view is turned to look along the route.
+// Continuous, linear motion. The viewer animates image-to-image with an
+// ease-in/ease-out curve whenever its trajectory holds fewer than three
+// images — which is every plain moveTo. Fed a trajectory one image *ahead*
+// instead (queueFrame → the state service's append, the path the viewer's
+// own sequence playback uses), the alpha stays linear and the next hop starts
+// the instant the previous one ends. pace() then scales the viewer's
+// transition speed (its 0–10 coefficient) every tick so each hop finishes
+// exactly when the rider reaches that image's position: a tracking
+// controller on an estimated alpha, reset on every 'image' event. All of
+// that reaches MapillaryJS internals (navigator → stateService/graphService;
+// no public API). The version is pinned in tuning.yaml and every call is
+// guarded, so a future bundle without them degrades to hard cuts at the
+// viewer's native pace instead of breaking. A <video>-based renderer for a
+// future "replay my own ride" source would implement the same contract.
 
 import { panoCenterX } from "./frame-index.mjs";
 
@@ -76,9 +81,54 @@ export function createMapillaryRenderer({ token, config, onError = () => {}, onM
   let viewer = null;
   let container = null;
   let host = null;
-  let shownRef = null;
-  let pendingRef = null;
+  // Frames fed to the viewer, by ref, plus the trajectory order from the
+  // image currently on screen onward ([current, queued]).
+  const nodes = new Map();
+  let trajectory = [];
+  let current = null;
+  let pendingCut = null;
+  // Tracking controller state for the hop in progress.
   let motionSpeed = 1;
+  let alphaEstimate = 1;
+  let lastPaceMs = 0;
+
+  const internals = () => {
+    const navigator = viewer?._navigator;
+    return {
+      stateService: navigator?.stateService,
+      graphService: navigator?.graphService,
+    };
+  };
+
+  function applySpeed(coefficient) {
+    const { stateService } = internals();
+    if (!stateService || typeof stateService.setSpeed !== "function") return;
+    const next = Math.max(0.01, Math.min(10, coefficient));
+    if (next === motionSpeed) return;
+    motionSpeed = next;
+    try {
+      stateService.setSpeed(next);
+    } catch (error) {
+      onError(error);
+    }
+  }
+
+  // The viewer moved on to the next image of its trajectory (or landed after
+  // a hard cut): it is now transitioning toward `ref`.
+  function handleImage(ref) {
+    current = ref;
+    const at = trajectory.indexOf(ref);
+    trajectory = at >= 0 ? trajectory.slice(at) : [ref];
+    alphaEstimate = 0;
+    const node = nodes.get(ref);
+    if (node?.isPano && Number.isFinite(node.routeBearingDeg) && Number.isFinite(node.headingDeg)) {
+      viewer.setCenter([panoCenterX(node.routeBearingDeg, node.headingDeg), 0.5]);
+      viewer.setFieldOfView(config.pano_fov_degrees);
+    }
+    // Passed images are no longer needed; the viewer's own playback prunes
+    // the same way.
+    internals().stateService?.clearPriorImages?.();
+  }
 
   return {
     id: "mapillary",
@@ -111,55 +161,99 @@ export function createMapillaryRenderer({ token, config, onError = () => {}, onM
           attribution: true,
         },
       });
+      viewer.on("image", (event) => handleImage(event.image.id));
       viewer.on("movestart", () => onMotion(true));
       viewer.on("moveend", () => onMotion(false));
     },
 
-    // Scale the viewer's transition animation: 1 is MapillaryJS's own pace,
-    // 0.5 takes twice as long, 2 half as long. Re-applied every tick by the
-    // coordinator because the viewer resets it on some state changes.
-    setMotionSpeed(coefficient) {
-      const stateService = viewer?._navigator?.stateService;
-      if (!stateService || typeof stateService.setSpeed !== "function") return;
-      const next = Math.max(0.01, Math.min(10, coefficient));
-      if (next === motionSpeed) return;
-      motionSpeed = next;
+    currentRef() {
+      return current;
+    },
+
+    // Hard cut: a fresh trajectory starting at this image (resync after a
+    // seek, a gap, or on first show). Superseded moves reject with
+    // CancelMapillaryError, which is expected and ignored. Returns true when
+    // a move was actually started (false if already there or pending).
+    showFrame(frame) {
+      if (!viewer || !frame) return false;
+      if (frame.ref === current || frame.ref === pendingCut) return false;
+      nodes.set(frame.ref, frame);
+      pendingCut = frame.ref;
+      trajectory = [];
+      viewer.moveTo(frame.ref)
+        .then(() => {
+          if (pendingCut === frame.ref) pendingCut = null;
+          if (!trajectory.length) trajectory = [frame.ref];
+        })
+        .catch((error) => {
+          if (pendingCut === frame.ref) pendingCut = null;
+          if (error?.name === "CancelMapillaryError") return;
+          onError(error);
+        });
+      return true;
+    },
+
+    // Append the image to play after the current one, so the viewer rolls
+    // straight into the next hop with no pause and no easing. One image is
+    // kept queued beyond the current one; anything else is ignored.
+    queueFrame(frame) {
+      if (!viewer || !frame || pendingCut || !current) return;
+      if (trajectory.length >= 2 || trajectory.includes(frame.ref)) return;
+      const { stateService, graphService } = internals();
+      if (typeof graphService?.cacheImage$ !== "function" || typeof stateService?.appendImagess !== "function") return;
+      nodes.set(frame.ref, frame);
+      trajectory.push(frame.ref);
+      const expectedCurrent = current;
       try {
-        stateService.setSpeed(next);
+        graphService.cacheImage$(frame.ref).subscribe({
+          next: (image) => {
+            // Still wanted? A hard cut or a different pick may have come in
+            // while the image was loading.
+            if (pendingCut || current !== expectedCurrent || !trajectory.includes(frame.ref)) return;
+            stateService.appendImagess([image]);
+          },
+          error: (error) => {
+            trajectory = trajectory.filter((ref) => ref !== frame.ref);
+            onError(error);
+          },
+        });
       } catch (error) {
+        trajectory = trajectory.filter((ref) => ref !== frame.ref);
         onError(error);
       }
     },
 
-    showFrame(frame, { headingDeg = null } = {}) {
-      if (!viewer || !frame) return;
-      if (frame.ref === shownRef || frame.ref === pendingRef) return;
-      pendingRef = frame.ref;
-      viewer.moveTo(frame.ref)
-        .then(() => {
-          if (pendingRef !== frame.ref) return;
-          pendingRef = null;
-          shownRef = frame.ref;
-          if (frame.isPano && Number.isFinite(headingDeg) && Number.isFinite(frame.headingDeg)) {
-            viewer.setCenter([panoCenterX(headingDeg, frame.headingDeg), 0.5]);
-            viewer.setFieldOfView(config.pano_fov_degrees);
-          }
-        })
-        .catch((error) => {
-          if (pendingRef === frame.ref) pendingRef = null;
-          // A newer frame superseded this move before it finished — expected
-          // whenever the rider outruns the viewer; nothing to report.
-          if (error?.name === "CancelMapillaryError") return;
-          onError(error);
-        });
+    // Tracking controller: scale the viewer's transition speed so the hop in
+    // progress (toward `current`) completes exactly when the rider reaches
+    // that image's route position. alphaEstimate integrates our own speed
+    // setting against the viewer's native hop duration; it is reset at every
+    // image event so errors never accumulate across hops.
+    pace({ progressMeters, speedMps }) {
+      if (!viewer) return;
+      const now = performance.now();
+      const dt = lastPaceMs ? Math.min(1, (now - lastPaceMs) / 1000) : 0;
+      lastPaceMs = now;
+      alphaEstimate = Math.min(1, alphaEstimate + (motionSpeed * dt) / config.transition_base_seconds);
+      const node = nodes.get(current);
+      let coefficient = 1;
+      if (node && speedMps >= config.motion_min_speed_mps) {
+        const remainingMeters = node.distanceMeters - progressMeters;
+        if (remainingMeters <= 0) {
+          // The rider is already past this image: catch up as fast as allowed.
+          coefficient = config.motion_coefficient_max;
+        } else {
+          const remainingSeconds = remainingMeters / speedMps;
+          coefficient = (config.transition_base_seconds * (1 - alphaEstimate)) / remainingSeconds;
+        }
+        coefficient = Math.max(config.motion_coefficient_min, Math.min(config.motion_coefficient_max, coefficient));
+      }
+      applySpeed(coefficient);
     },
 
-    // Approach zoom: ease into the current photo as the rider closes in on the
-    // next frame's position (fraction 0..1), so the cut to the next image
-    // continues the motion instead of jumping. Skipped mid-transition so it
-    // never fights the viewer's own navigation animation.
+    // Experimental approach zoom (off unless approach_zoom_max > 0): zoom
+    // into the current photo as the rider closes in on the next one.
     setApproach(fraction) {
-      if (!viewer || !shownRef || pendingRef || !(config.approach_zoom_max > 0)) return;
+      if (!viewer || !current || pendingCut || !(config.approach_zoom_max > 0)) return;
       viewer.setZoom(Math.max(0, Math.min(1, fraction)) * config.approach_zoom_max);
     },
 
@@ -185,9 +279,13 @@ export function createMapillaryRenderer({ token, config, onError = () => {}, onM
       viewer = null;
       container = null;
       host = null;
-      shownRef = null;
-      pendingRef = null;
+      nodes.clear();
+      trajectory = [];
+      current = null;
+      pendingCut = null;
       motionSpeed = 1;
+      alphaEstimate = 1;
+      lastPaceMs = 0;
     },
   };
 }

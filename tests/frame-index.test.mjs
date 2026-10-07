@@ -9,9 +9,10 @@ import {
   coveragePercent,
   coverageSegments,
   createFrameIndex,
+  frameByRef,
   frameForProgress,
   longestGapMeters,
-  nextSwitchMeters,
+  nextFrame,
   panoCenterX,
   projectOntoRoute,
   wrap180,
@@ -177,14 +178,20 @@ test("frameForProgress re-picks after a backward seek leaves the current frame b
   assert.equal(frameForProgress(index, 310, current, SELECT_OPTS).ref, "early");
 });
 
-test("nextSwitchMeters predicts where the selection will advance", () => {
-  const index = indexWith([at(500, { ref: "a" }), at(502, { ref: "b" }), at(512, { ref: "c" })]);
-  const [a, , c] = index.frames;
-  // With a 10 m minimum step, b is skipped: the switch toward c sits at the midpoint 506 m.
-  assert.ok(Math.abs(nextSwitchMeters(index, a, { minAdvanceMeters: 10, switchFraction: 0.5 }) - 506) < 1e-6);
-  // Without the minimum step, b is next: midpoint 501 m.
-  assert.ok(Math.abs(nextSwitchMeters(index, a, { switchFraction: 0.5 }) - 501) < 1e-6);
-  assert.equal(nextSwitchMeters(index, c, { minAdvanceMeters: 10, switchFraction: 0.5 }), null);
+test("nextFrame queues the best frame beyond the minimum step, or null in a gap", () => {
+  const index = indexWith([
+    at(500, { ref: "a", sequenceId: "s1" }),
+    at(503, { ref: "too-close", sequenceId: "s1" }),
+    at(511, { ref: "other", sequenceId: "s2" }),
+    at(513, { ref: "same", sequenceId: "s1" }),
+    at(900, { ref: "far", sequenceId: "s1" }),
+  ]);
+  const a = frameByRef(index, "a");
+  const opts = { minAdvanceMeters: 10, maxAheadMeters: 60, sameSequenceBonusMeters: 20 };
+  assert.equal(nextFrame(index, a, opts).ref, "same", "same sequence beats a slightly nearer other one");
+  assert.equal(nextFrame(index, a, { ...opts, sameSequenceBonusMeters: 0 }).ref, "other");
+  assert.equal(nextFrame(index, frameByRef(index, "same"), opts), null, "nothing within reach ahead");
+  assert.equal(frameByRef(index, "nope"), null);
 });
 
 test("approachFraction measures progress from the shown frame toward the next one", () => {

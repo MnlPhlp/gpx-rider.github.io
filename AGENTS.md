@@ -777,13 +777,16 @@ in place).
   of the way to it and after `min_dwell_ms`. The renderer's
   `setApproach(fraction)` (zoom into the current photo toward
   `approach_zoom_max`) exists but defaults to off: tested, it read as a
-  step back at every cut, so the viewer's own transition carries the motion —
-  stretched to fill the interval: each tick `motionCoefficient` divides
-  `transition_base_seconds` by the time to the next cut (`nextSwitchMeters`
-  minus where the frame came up, at the rider's speed) and the renderer's
-  `setMotionSpeed` applies it through MapillaryJS's internal state-service
-  `setSpeed` (no public API; guarded, version pinned), so the viewer is in
-  motion the whole time instead of animating briefly and holding. While the
+  step back at every cut, so the viewer's own transition carries the motion.
+  Continuous and linear: the coordinator's `driveRenderer` lets the viewer
+  keep rolling while the image it is heading to is within reach, queues
+  `nextFrame` behind it (`renderer.queueFrame` → MapillaryJS's internal
+  `stateService.appendImagess`, the path its own sequence playback uses — a
+  trajectory of ≥3 images keeps its alpha linear, a lone `moveTo` eases),
+  hard-cuts (`showFrame`) only when out of reach, and `renderer.pace` runs a
+  tracking controller on the internal `setSpeed` coefficient so each hop ends
+  exactly when the rider reaches that image (no public API for any of this;
+  guarded, version pinned, degrades to native-pace hard cuts). While the
   layer is fully opaque the viewport carries `.street-imagery-covering`,
   which takes `#map` out of layout (`pause_map_when_covered`) so the covered
   3D map stops rendering/streaming; it is restored before the fade-out. It runs on its **own** `refresh_ms` setTimeout loop (same

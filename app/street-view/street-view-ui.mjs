@@ -17,7 +17,6 @@
 // person — the same reason camera-debug.mjs polls on its own.
 
 import { isFirstPersonCameraView } from "../camera/camera-ui.mjs";
-import { currentRouteHeading } from "../camera/follow-camera.mjs";
 import { deployedMapillaryToken } from "../config.mjs";
 import { els, state } from "../core/state.mjs";
 import { STREET_IMAGERY } from "../core/tuning.mjs";
@@ -31,9 +30,10 @@ import {
   coveragePercent,
   coverageSegments,
   createFrameIndex,
+  frameByRef,
   frameForProgress,
   longestGapMeters,
-  nextSwitchMeters,
+  nextFrame,
 } from "./frame-index.mjs";
 import { createMapillaryRenderer } from "./mapillary-renderer.mjs";
 import { createMapillarySource } from "./mapillary-source.mjs";
@@ -131,40 +131,37 @@ function stepStreetImagery() {
   }
   if (!frame) {
     si.current = null;
-  } else if (frame !== si.current?.frame) {
-    // switchStartMeters: where the rider was when this frame came up — the
-    // start of the interval the transition is stretched over.
-    si.current = { frame, sinceMs: performance.now(), switchStartMeters: state.progressMeters };
+  } else if (si.renderer) {
+    frame = driveRenderer(frame);
   }
-  if (frame && si.renderer) {
-    const speedMps = isMoving() ? currentSpeedKph() / 3.6 : 0;
-    // The renderer ignores a frame it already shows, so repeating the call
-    // every tick simply catches a renderer that mounted after the pick.
-    si.renderer.showFrame(frame, { headingDeg: currentRouteHeading(), speedMps });
-    si.renderer.setMotionSpeed(motionCoefficient(frame, speedMps));
-    si.renderer.setApproach(approachFraction(si.index, frame, state.progressMeters));
-  }
+  if (frame && frame !== si.current?.frame) si.current = { frame, sinceMs: performance.now() };
   setLayerVisible(Boolean(frame && si.renderer));
   renderChip(frame);
 }
 
-// Pace the viewer's transition so it lasts exactly until the next cut: the
-// interval from where this frame was switched in to where the next switch
-// will land, covered at the rider's current speed. Native pace when parked
-// (so a half-finished transition still completes) or with nothing ahead.
-function motionCoefficient(frame, speedMps) {
-  const c = STREET_IMAGERY;
+// Keep the viewer rolling: if the image it is on (or heading to) is still
+// within reach of the rider, let it continue and queue the next image behind
+// it so the motion never stops; otherwise hard-cut to the frame the selection
+// wants (first show, a seek, a gap). Returns the frame actually on screen.
+function driveRenderer(wanted) {
   const si = state.streetImagery;
-  if (speedMps < c.motion_min_speed_mps) return 1;
-  const switchAt = nextSwitchMeters(si.index, frame, {
-    minAdvanceMeters: c.min_advance_meters,
-    switchFraction: c.switch_hysteresis_fraction,
-  });
-  if (switchAt === null) return 1;
-  const intervalMeters = switchAt - (si.current?.switchStartMeters ?? frame.distanceMeters);
-  if (!(intervalMeters > 0)) return 1;
-  const intervalSeconds = intervalMeters / speedMps;
-  return Math.max(c.motion_coefficient_min, Math.min(c.motion_coefficient_max, c.transition_base_seconds / intervalSeconds));
+  const c = STREET_IMAGERY;
+  const progress = state.progressMeters;
+  const onScreen = frameByRef(si.index, si.renderer.currentRef());
+  const inReach = onScreen
+    && onScreen.distanceMeters >= progress - c.max_behind_meters
+    && onScreen.distanceMeters <= progress + c.max_ahead_meters;
+  let shown = wanted;
+  if (inReach) {
+    shown = onScreen;
+  } else if (si.renderer.showFrame(wanted) && state.cameraDebugEnabled) {
+    console.debug(`[street-imagery] hard cut → ${wanted.ref}`);
+  }
+  const upcoming = nextFrame(si.index, shown, selectionOptions());
+  if (upcoming) si.renderer.queueFrame(upcoming);
+  si.renderer.pace({ progressMeters: progress, speedMps: isMoving() ? currentSpeedKph() / 3.6 : 0 });
+  si.renderer.setApproach(approachFraction(si.index, shown, progress));
+  return shown;
 }
 
 function handleViewerMotion(inMotion) {

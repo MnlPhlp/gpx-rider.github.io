@@ -40,6 +40,7 @@ export function createFrameIndex(route, {
     totalMeters: route?.length ? routeTotalDistance(route) : 0,
     frames: [],
     refs: new Set(),
+    frameByRef: new Map(),
     maxOffsetMeters,
     headingToleranceDegrees,
     bearingSampleMeters,
@@ -162,10 +163,62 @@ export function addCandidates(index, candidates) {
       routeBearingDeg: hit.bearingDeg,
     };
     index.refs.add(key);
+    index.frameByRef.set(key, frame);
     index.frames.splice(upperBound(index.frames, frame.distanceMeters), 0, frame);
     accepted += 1;
   }
   return accepted;
+}
+
+export function frameByRef(index, ref) {
+  return ref == null ? null : index.frameByRef.get(refKey(ref)) ?? null;
+}
+
+// Score shared by frameForProgress and nextFrame: along-route distance from
+// `originMeters`, minus the bonuses that keep playback coherent — staying in
+// the sequence of `referenceFrame` (the viewer can animate between images of
+// one capture run; a jump to another is a hard cut), the rider's own uploads,
+// and 360° images (which always face the road).
+function frameScore(frame, originMeters, referenceFrame, {
+  sameSequenceBonusMeters = 0,
+  ownImageryBonusMeters = 0,
+  panoBonusMeters = 0,
+  preferredCreator = null,
+}) {
+  let value = Math.abs(frame.distanceMeters - originMeters);
+  if (referenceFrame && frame.sequenceId && frame.sequenceId === referenceFrame.sequenceId) value -= sameSequenceBonusMeters;
+  if (preferredCreator && frame.creator === preferredCreator) value -= ownImageryBonusMeters;
+  if (frame.isPano) value -= panoBonusMeters;
+  return value;
+}
+
+function bestFrame(frames, from, to, originMeters, referenceFrame, options) {
+  let winner = null;
+  let winnerScore = Infinity;
+  for (let i = from; i < to; i += 1) {
+    const frame = frames[i];
+    const value = frameScore(frame, originMeters, referenceFrame, options);
+    if (value < winnerScore || (value === winnerScore && (frame.capturedAt ?? 0) > (winner?.capturedAt ?? 0))) {
+      winner = frame;
+      winnerScore = value;
+    }
+  }
+  return winner;
+}
+
+// The frame playback should continue to after `frame`: the best-scoring one
+// between minAdvanceMeters and maxAheadMeters further along the route, or
+// null when a gap follows. Lets a renderer queue the next image behind the
+// transition it is already running, so motion never stops between photos.
+export function nextFrame(index, frame, { minAdvanceMeters = 0, maxAheadMeters, ...options }) {
+  const frames = index.frames;
+  const from = Math.max(
+    upperBound(frames, frame.distanceMeters),
+    lowerBound(frames, frame.distanceMeters + minAdvanceMeters),
+  );
+  const to = upperBound(frames, frame.distanceMeters + maxAheadMeters);
+  if (from >= to) return null;
+  return bestFrame(frames, from, to, frame.distanceMeters + minAdvanceMeters, frame, options);
 }
 
 // First position whose distance is >= meters.
@@ -226,26 +279,8 @@ export function frameForProgress(index, progressMeters, current, {
   if (start >= end) return null;
 
   const currentFrame = current?.frame ?? null;
-  const score = (frame) => {
-    let value = Math.abs(frame.distanceMeters - progressMeters);
-    if (currentFrame && frame.sequenceId && frame.sequenceId === currentFrame.sequenceId) value -= sameSequenceBonusMeters;
-    if (preferredCreator && frame.creator === preferredCreator) value -= ownImageryBonusMeters;
-    if (frame.isPano) value -= panoBonusMeters;
-    return value;
-  };
-  const best = (from, to) => {
-    let winner = null;
-    let winnerScore = Infinity;
-    for (let i = from; i < to; i += 1) {
-      const frame = frames[i];
-      const value = score(frame);
-      if (value < winnerScore || (value === winnerScore && (frame.capturedAt ?? 0) > (winner?.capturedAt ?? 0))) {
-        winner = frame;
-        winnerScore = value;
-      }
-    }
-    return winner;
-  };
+  const scoring = { sameSequenceBonusMeters, ownImageryBonusMeters, panoBonusMeters, preferredCreator };
+  const best = (from, to) => bestFrame(frames, from, to, progressMeters, currentFrame, scoring);
 
   const currentInReach = currentFrame
     && currentFrame.distanceMeters >= progressMeters - maxBehindMeters
@@ -262,21 +297,6 @@ export function frameForProgress(index, progressMeters, current, {
   const switchAt = currentFrame.distanceMeters + switchFraction * (next.distanceMeters - currentFrame.distanceMeters);
   const dwelled = nowMs - (current.sinceMs ?? -Infinity) >= minDwellMs;
   return progressMeters >= switchAt && dwelled ? next : currentFrame;
-}
-
-// Route distance at which frameForProgress will advance past `frame` (the
-// hysteresis point toward the first frame at least minAdvanceMeters ahead),
-// or null when nothing follows. Lets the coordinator pace the viewer's
-// transition so it lasts exactly until the next cut.
-export function nextSwitchMeters(index, frame, { minAdvanceMeters = 0, switchFraction }) {
-  const frames = index.frames;
-  const nextIndex = Math.max(
-    upperBound(frames, frame.distanceMeters),
-    lowerBound(frames, frame.distanceMeters + minAdvanceMeters),
-  );
-  const next = frames[nextIndex];
-  if (!next) return null;
-  return frame.distanceMeters + switchFraction * (next.distanceMeters - frame.distanceMeters);
 }
 
 // How far the rider has progressed from `frame` toward the next frame along

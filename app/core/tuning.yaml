@@ -626,14 +626,15 @@ street_imagery:
   own_imagery_bonus_meters: 30
   pano_bonus_meters: 5
 
-  # Continuous motion: each image-to-image transition is stretched to last
-  # until the next cut (interval ÷ rider speed), so the viewer moves the
-  # whole time instead of animating briefly and then holding. The viewer's
-  # own transition takes transition_base_seconds at its native pace; the pace
-  # coefficient we apply is clamped to [motion_coefficient_min, _max] (very
-  # slow riding would otherwise freeze a half-finished transition; very fast
-  # riding would blur). Below motion_min_speed_mps the native pace is used so
-  # a stopped rider still sees the transition finish.
+  # Continuous motion: the viewer is fed one image ahead (so its hops chain
+  # with no pause and no ease-in/out) and a tracking controller scales its
+  # transition speed every tick so each hop finishes exactly when the rider
+  # reaches that image's position. The viewer's own hop takes
+  # transition_base_seconds at native pace; the coefficient we apply is
+  # clamped to [motion_coefficient_min, _max] (very slow riding would
+  # otherwise freeze a half-finished hop; very fast riding would blur). Below
+  # motion_min_speed_mps the native pace is used so a stopped rider still
+  # sees the hop finish.
   transition_base_seconds: 0.7
   motion_coefficient_min: 0.15
   motion_coefficient_max: 3
