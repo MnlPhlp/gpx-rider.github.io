@@ -18,10 +18,12 @@
 // filled with the next frame (counted in `tagMisses`), like a dropped frame
 // in a live recording. Each accepted frame is cropped to the viewport and the
 // chosen aspect onto a canvas at the output size, wrapped in a WebCodecs
-// VideoFrame stamped frameIndex / fps, encoded as H.264 and muxed into an MP4
-// by the vendored mp4-muxer (app/vendor/mp4-muxer, MIT). Timing in the file
-// is exact however long frames took to produce. Google's attribution is part
-// of every captured frame and must never be cropped or drawn over.
+// VideoFrame stamped frameIndex / fps, encoded as H.264 and muxed into a
+// fragmented MP4 by the vendored mp4-muxer (app/vendor/mp4-muxer, MIT),
+// streamed into disk-backed Blob parts so a long ride's file is not limited
+// by memory. Timing in the file is exact however long frames took to produce.
+// Google's attribution is part of every captured frame and must never be
+// cropped or drawn over.
 //
 // Owns only its own capture/encode state; reports through the returned
 // controller. `steppedVideoSupported()` gates the feature — browsers without
@@ -42,6 +44,8 @@ const TAG_INSET_PX = 4;
 const TAG_STALE_DISTANCE = FRAME_TAG_COUNT / 2;
 // Encoder backlog at which the caller should stop producing steps.
 const ENCODER_BUSY_QUEUE = 3;
+// Size of each muxed chunk handed to blob storage.
+const STREAM_CHUNK_BYTES = 8 * 1024 * 1024;
 
 export function steppedVideoSupported() {
   return typeof navigator.mediaDevices?.getDisplayMedia === "function"
@@ -67,6 +71,7 @@ export async function startSteppedRecording(viewport, {
   frameRate = 30,
   captureFrameRate = 120,
   videoBitsPerSecond = null,
+  latencyMode = "realtime",
   onEnded = null,
 } = {}) {
   if (!steppedVideoSupported()) throw new Error("This browser cannot encode video frames (WebCodecs).");
@@ -77,13 +82,21 @@ export async function startSteppedRecording(viewport, {
   const capture = await openTabCapture(viewport, { aspectRatio, outputWidth, frameRate: captureFrameRate });
   const { canvas, video } = capture;
 
+  // Desktop Chrome rarely has a hardware H.264 encoder (never on Linux by
+  // default), so this usually runs in software. There `latencyMode:
+  // "quality"` throttles to ~16 fps at 1080p and starves the map's WASM
+  // renderer of CPU (measured: map 43 → 34 fps); "realtime" keeps up with
+  // 30 fps and leaves the map alone, at some quality per bit — hence the
+  // higher bitrate default in tuning.yaml.
   const encoderConfig = {
     codec: AVC_CODEC,
     width: canvas.width,
     height: canvas.height,
     framerate: frameRate,
     bitrate: Number(videoBitsPerSecond) > 0 ? Number(videoBitsPerSecond) : undefined,
-    latencyMode: "quality",
+    // No hardwareAcceleration hint: "prefer-hardware" makes isConfigSupported
+    // fail outright where there is no hardware encoder.
+    latencyMode,
     avc: { format: "avc" },
   };
   const support = await VideoEncoder.isConfigSupported(encoderConfig);
@@ -92,11 +105,29 @@ export async function startSteppedRecording(viewport, {
     throw new Error(`H.264 encoding at ${canvas.width}×${canvas.height} is not supported here.`);
   }
 
-  const { ArrayBufferTarget, Muxer } = await import("../vendor/mp4-muxer/mp4-muxer.mjs");
+  // The file is written as a *fragmented* MP4 streamed through chunk
+  // callbacks into Blob parts: an in-memory target must hold (and, when
+  // finalizing, reallocate) the whole file in one ArrayBuffer, which failed
+  // on a long ride ("Array buffer allocation failed" past a gigabyte).
+  // Fragmented MP4 is written strictly sequentially, so nothing needs to be
+  // buffered, and each part becomes a Blob at once — the browser pages large
+  // blob storage to disk, so the video's size is bounded by disk, not RAM.
+  const { Muxer, StreamTarget } = await import("../vendor/mp4-muxer/mp4-muxer.mjs");
+  const parts = [];
+  let bytes = 0;
   const muxer = new Muxer({
-    target: new ArrayBufferTarget(),
+    target: new StreamTarget({
+      chunked: true,
+      chunkSize: STREAM_CHUNK_BYTES,
+      // Fragmented writes are strictly sequential, so `position` is always
+      // the running total (the muxer requires the parameter to be declared).
+      onData: (data, _position) => {
+        parts.push(new Blob([data]));
+        bytes += data.byteLength;
+      },
+    }),
     video: { codec: "avc", width: canvas.width, height: canvas.height, frameRate },
-    fastStart: "in-memory",
+    fastStart: "fragmented",
     firstTimestampBehavior: "offset",
   });
 
@@ -177,6 +208,9 @@ export async function startSteppedRecording(viewport, {
     get tagMisses() {
       return tagMisses;
     },
+    get bytes() {
+      return bytes;
+    },
     get inFlight() {
       return produced - frames;
     },
@@ -203,7 +237,8 @@ export async function startSteppedRecording(viewport, {
         encoder.close();
         if (frames === 0) return null;
         muxer.finalize();
-        return new Blob([muxer.target.buffer], { type: "video/mp4" });
+        // Concatenating blobs copies nothing into the JS heap.
+        return new Blob(parts, { type: "video/mp4" });
       } catch (error) {
         console.error("Could not finish the video.", error);
         return null;

@@ -124,6 +124,7 @@ export async function startReplayVideoExport() {
     frameRate: RIDE_REPLAY_VIDEO.frame_rate,
     captureFrameRate: RIDE_REPLAY_VIDEO.capture_frame_rate,
     videoBitsPerSecond: RIDE_REPLAY_VIDEO.bits_per_second,
+    latencyMode: RIDE_REPLAY_VIDEO.encoder_latency_mode,
     mimeTypePreferences: RIDE_REPLAY_VIDEO.mime_preferences,
     onMessage: updateProgressLabel,
     // The browser's own "Stop sharing" bar ends the export too.
@@ -240,7 +241,8 @@ function runSteppedExport(recorder) {
       // progress bar keeps showing the ride readout.
       setRecordStatus(
         `REC ${Math.round(done * 100)}% · ${formatDuration(status.elapsedSeconds, "clock")} of `
-          + `${formatDuration(status.durationSeconds, "clock")} · ${captureFps.toFixed(0)} fps`,
+          + `${formatDuration(status.durationSeconds, "clock")} · ${captureFps.toFixed(0)} fps · `
+          + `${(recorder.bytes / 1_048_576).toFixed(0)} MB`,
       );
     }
 

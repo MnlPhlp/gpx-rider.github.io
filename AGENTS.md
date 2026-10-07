@@ -242,15 +242,25 @@ in place).
   viewport and the `ride_replay.video` aspect at `output_width`) and encodes
   the frame as the step its tag names (a step the capture dropped is filled
   with the next frame and counted in `tagMisses`), wrapping it in a WebCodecs
-  `VideoFrame` stamped `step/fps`, H.264, muxed to MP4 by the vendored
-  mp4-muxer. Up to `pipeline_depth` steps are in flight, so render, capture
+  `VideoFrame` stamped `step/fps`, H.264, muxed by the vendored mp4-muxer as a
+  **fragmented MP4 streamed into Blob parts** (`StreamTarget`, `fastStart:
+  "fragmented"`; an in-memory target failed with "Array buffer allocation
+  failed" on a long ride — fragmented writes are sequential and blob storage
+  pages to disk, so file size is bounded by disk, not RAM). Up to
+  `pipeline_depth` steps are in flight, so render, capture
   latency and encode overlap. Pacing on captured frames is essential: stepping
   every rAF produced steps the capture never showed (half the frames were
   duplicates). The ceiling is the capture rate, i.e. the display's refresh
   rate: 60 Hz → a 30 fps video at ≤ 2× real time. Never block the export on
   `isSteady`/`gmp-steadychange` (a moving camera is rarely steady; a 400 ms
   wait made exports crawl at 3 fps) — `steady_timeout_ms` is 0 and only the
-  headless script's `waitForMapSteady` honors it. Without WebCodecs the
+  headless script's `waitForMapSteady` honors it. The encoder runs in
+  `encoder_latency_mode: "realtime"`: desktop Chrome usually has no hardware
+  H.264 (never on Linux), and software encoding in "quality" mode throttles
+  to ~16 fps at 1080p and starves the map's WASM renderer (measured: map
+  43 → 34 fps; the user saw 15 fps exports) — "realtime" keeps up with 30 fps
+  and leaves the map alone. A live tab capture itself does *not* slow the map
+  (measured). Without WebCodecs the
   real-time `MediaRecorder` fallback (`startViewportRecording`) runs instead.
   Both open on the route overview for `intro_seconds`, play from the start,
   continue through the finish-line orbit for `outro_seconds`, then download;

@@ -1309,7 +1309,12 @@ ride_replay:
   # to this aspect ratio and scaled to output_width (even numbers only —
   # encoders dislike odd dimensions); frame_rate is the video's frame rate and,
   # for the stepped export, the size of each app-clock step. bits_per_second
-  # caps the encoder (0 = browser default); 12 Mbit/s is a clean 1080p30. The
+  # caps the encoder (0 = browser default). encoder_latency_mode is the
+  # WebCodecs VideoEncoder mode: desktop Chrome usually has no hardware H.264
+  # encoder (never on Linux by default), and the software encoder in "quality"
+  # mode only manages ~16 fps at 1080p while starving the 3D map of CPU —
+  # "realtime" keeps up with 30 fps and leaves the map alone, trading some
+  # quality per bit, which the 16 Mbit/s default makes up for. The
   # stepped export (WebCodecs, H.264 MP4) advances the app clock one video
   # frame per *captured* frame and keeps up to pipeline_depth steps in flight
   # between stepping and encoding (each captured frame is matched to its step
@@ -1333,7 +1338,8 @@ ride_replay:
     output_width: 1920
     aspect: "16:9"
     frame_rate: 30
-    bits_per_second: 12000000
+    bits_per_second: 16000000
+    encoder_latency_mode: "realtime"
     capture_frame_rate: 120
     pipeline_depth: 6
     steady_timeout_ms: 0
