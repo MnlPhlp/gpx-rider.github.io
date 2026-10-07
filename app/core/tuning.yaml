@@ -1334,13 +1334,16 @@ ride_replay:
   # default makes up for. mime_preferences is tried in order: current Chrome
   # writes MP4 (H.264) directly, older ones WebM. The video opens on a still
   # of the route overview for intro_seconds before the replay starts (the
-  # camera then flies down to the rider); after the rider finishes, the
+  # camera then flies down to the rider at the start, and the ride begins
+  # only once the camera has arrived — at most start_wait_max_seconds after
+  # the intro, in case it never settles); after the rider finishes, the
   # finish-line orbit keeps going for outro_seconds before the file is saved.
   video:
     output_width: 1920
     frame_rate: 30
     bits_per_second: 16000000
     intro_seconds: 2
+    start_wait_max_seconds: 15
     outro_seconds: 6
     mime_preferences:
       - "video/mp4;codecs=avc1"

@@ -239,12 +239,19 @@ in place).
   crop to a fixed aspect cut it off), recorded by a `MediaRecorder` (`startViewportRecording`; current
   Chrome writes MP4/H.264, older ones WebM, per `mime_preferences`). Chrome
   keeps rendering a captured tab, so the tab may go to the background. It
-  opens on the route overview for `intro_seconds`, plays from the start,
-  continues through the finish-line orbit for `outro_seconds`
+  opens on the route overview for `intro_seconds`, then
+  `replay-mode.mjs#startReplayWhenCameraArrives` flies the camera down to the
+  rider parked at the start (`returnToRiderCamera` — the overview-off arc or
+  the chase flight) and starts the replay only once no transition is in
+  flight and the chase flight has settled (capped by
+  `start_wait_max_seconds`), so the ride never moves while the camera is
+  still flying in; it continues through the finish-line orbit for `outro_seconds`
   (`handleReplayFinishedWhileRecording`), then downloads; Stop & save, the
   browser's "Stop sharing" bar, and leaving theater mode end early and save.
   The viewport carries `capturing` meanwhile (our buttons out, Google
-  attribution in); the REC chip shows progress and file size. The toolbar's
+  attribution in); the REC chip shows progress, the time left to watch at
+  the playback speed (`replayWatchSecondsLeft` — also in the transport
+  readouts: ride time elapsed / total · left) and file size. The toolbar's
   hide list also has **Route ahead** (on by default,
   `theater_hide.route_ahead`): in the recording view the 3D route line is
   then the **route trail** (`map/route-trail.mjs`) — `renderRouteLines` hands

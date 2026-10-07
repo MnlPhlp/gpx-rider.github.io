@@ -4,8 +4,9 @@
 // video shows. "Record video" then records exactly that viewport in real
 // time through the browser's tab capture and a MediaRecorder
 // (map/video-capture.mjs) while the replay plays: it opens on the route
-// overview for an intro, plays the replay from the start, keeps rolling
-// through the finish-line orbit for an outro, then saves the file. Chrome
+// overview for an intro, flies the camera down to the rider and plays the
+// replay from the start once the camera has arrived, keeps rolling through
+// the finish-line orbit for an outro, then saves the file. Chrome
 // keeps rendering a captured tab, so the tab may go to the background
 // meanwhile. The viewport carries the `capturing` class while recording so
 // our own buttons stay out of the video (Google's attribution always stays
@@ -28,7 +29,13 @@ import {
   videoFileExtension,
 } from "../map/video-capture.mjs";
 import { buildRenderCommand, hiddenOverlayKeys } from "./render-command.mjs";
-import { pauseReplay, seekReplayToSeconds, startReplay } from "./replay-mode.mjs";
+import {
+  cancelReplayCameraWait,
+  pauseReplay,
+  replayWatchSecondsLeft,
+  seekReplayToSeconds,
+  startReplayWhenCameraArrives,
+} from "./replay-mode.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
 import { els, state, updateProgressLabel } from "../core/state.mjs";
 import { RIDE_REPLAY_VIDEO } from "../core/tuning.mjs";
@@ -148,14 +155,17 @@ export async function startReplayVideoExport() {
   );
   replay.statusTimer = window.setInterval(updateRecordStatus, RECORD_STATUS_INTERVAL_MS);
   updateRecordStatus();
-  // A short still of the overview before the ride begins.
+  // A short still of the overview, then the camera flies down to the rider
+  // at the start; the ride begins once it has arrived.
   window.setTimeout(() => {
-    if (state.replay.recording) startReplay();
+    if (state.replay.recording) {
+      startReplayWhenCameraArrives({ maxWaitSeconds: RIDE_REPLAY_VIDEO.start_wait_max_seconds });
+    }
   }, RIDE_REPLAY_VIDEO.intro_seconds * 1000);
 }
 
-// The REC chip carries the recording's progress: how far the ride is, and
-// the file size so far. The status line under the progress bar keeps showing
+// The REC chip carries the recording's progress: how far the ride is, how
+// long the rest takes at the playback speed, and the file size so far. The status line under the progress bar keeps showing
 // the ride readout.
 function updateRecordStatus() {
   const replay = state.replay;
@@ -164,7 +174,8 @@ function updateRecordStatus() {
   const done = duration > 0 ? Math.min(1, replay.elapsedSeconds / duration) : 0;
   setRecordStatus(
     `REC ${Math.round(done * 100)}% · ${formatDuration(replay.elapsedSeconds, "clock")} of `
-      + `${formatDuration(duration, "clock")} · ${(replay.recorder.bytes / 1_048_576).toFixed(0)} MB`,
+      + `${formatDuration(duration, "clock")} · ${formatDuration(replayWatchSecondsLeft() ?? 0, "clock")} left · `
+      + `${(replay.recorder.bytes / 1_048_576).toFixed(0)} MB`,
   );
 }
 
@@ -189,6 +200,7 @@ export async function stopReplayVideoExport() {
   replay.outroTimer = null;
   window.clearInterval(replay.statusTimer);
   replay.statusTimer = null;
+  cancelReplayCameraWait();
   els.mapViewport.classList.remove("capturing");
   pauseReplay({ silent: true });
   syncRecordButton();

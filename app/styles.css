@@ -2165,7 +2165,7 @@ progress.ascent-progress::-moz-progress-bar {
 }
 
 .replay-time {
-  min-width: 112px;
+  min-width: 190px;
   text-align: right;
   white-space: nowrap;
   font: 600 12px/1 var(--font-num);

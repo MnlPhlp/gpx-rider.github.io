@@ -258,6 +258,9 @@ export const state = {
     exportStarting: false,
     statusTimer: null,
     outroTimer: null,
+    // Set while the recording waits for the camera to arrive at the rider
+    // before starting the replay (replay-mode.mjs#startReplayWhenCameraArrives).
+    cameraWait: null,
   },
   cameraDebugEnabled: DEFAULT_CAMERA_DEBUG_ENABLED,
   cameraDebugCollapsed: false,

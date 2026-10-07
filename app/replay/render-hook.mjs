@@ -12,10 +12,11 @@ import { applyCameraViewPreset } from "../camera/camera-ui.mjs";
 import { enterOverviewMode } from "../camera/overview-camera.mjs";
 import { advanceVirtualClock, enableVirtualClock } from "../core/clock.mjs";
 import { enterTheaterMode, setRecordingViewportSize } from "../hud/theater-mode.mjs";
-import { pauseReplay, seekReplayToSeconds, setReplaySpeed, startReplay } from "./replay-mode.mjs";
+import { pauseReplay, seekReplayToSeconds, setReplaySpeed, startReplayWhenCameraArrives } from "./replay-mode.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
 import { applyDisplaySettings, syncDisplayControls } from "../settings/settings-ui.mjs";
 import { els, state } from "../core/state.mjs";
+import { RIDE_REPLAY_VIDEO } from "../core/tuning.mjs";
 
 const HIDE_FLAGS = {
   clock: "theaterHideClock",
@@ -41,7 +42,9 @@ export function initRenderHook() {
     // The script polls this until a recorded ride is loaded.
     status: renderStatus,
     configure: configureRecordingView,
-    start: () => startReplay(),
+    // Flies the camera down to the rider first; the replay starts once it
+    // has arrived (status.awaitingCamera meanwhile).
+    start: () => startReplayWhenCameraArrives({ maxWaitSeconds: RIDE_REPLAY_VIDEO.start_wait_max_seconds }),
     step: stepAppClock,
   };
 }
@@ -54,6 +57,7 @@ export function renderStatus() {
     replayLoaded: Boolean(replay.timeline),
     mapReady: Boolean(state.map),
     playing: replay.playing,
+    awaitingCamera: Boolean(replay.cameraWait),
     elapsedSeconds: replay.elapsedSeconds,
     durationSeconds: duration,
     progressMeters: state.progressMeters,

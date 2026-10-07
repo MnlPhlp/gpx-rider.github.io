@@ -9,6 +9,8 @@
 // This module also owns the transport controls (play, scrubber, speed) in
 // the Ride replay card and the theater toolbar.
 
+import { returnToRiderCamera } from "../camera/overview-camera.mjs";
+import { nowMs } from "../core/clock.mjs";
 import { stopDemoMode } from "../demo/demo-mode.mjs";
 import { updateFullscreenLocalTime } from "../hud/map-hud.mjs";
 import { ensureMovementLoop, updateStartButton } from "../ride/movement.mjs";
@@ -61,12 +63,51 @@ export function startReplay() {
   state.simulating = false;
   updateStartButton();
   if (replay.elapsedSeconds >= replay.timeline.durationSeconds) seekReplayToSeconds(0);
+  // A start by any route supersedes a pending wait for the camera.
+  replay.cameraWait = null;
   replay.playing = true;
   replay.lastTelemetryIndex = -1;
   applyReplayTelemetry(replay.elapsedSeconds);
   syncReplayTransport();
   ensureMovementLoop();
   return true;
+}
+
+// The recording's handoff from the overview: fly the camera down to the
+// rider parked at the start (the same overview-off arc as the toolbar's
+// toggle, or the chase flight when no arc fits) and begin the replay only
+// once it has arrived — so the ride does not already move while the camera
+// is still flying in. Capped by `maxWaitSeconds` in case the camera never
+// settles. Read through the app clock, so the headless renderer's stepped
+// clock drives the wait too. A manual start (or `cancelReplayCameraWait`)
+// drops a pending wait.
+export function startReplayWhenCameraArrives({ maxWaitSeconds = 15 } = {}) {
+  const replay = state.replay;
+  if (!replay.timeline || state.route.length < 2) return;
+  const wait = { deadlineMs: nowMs() + maxWaitSeconds * 1000 };
+  replay.cameraWait = wait;
+  returnToRiderCamera();
+  const check = () => {
+    if (replay.cameraWait !== wait) return;
+    if (cameraArrivedAtRider() || nowMs() >= wait.deadlineMs) {
+      replay.cameraWait = null;
+      startReplay();
+      return;
+    }
+    requestAnimationFrame(check);
+  };
+  requestAnimationFrame(check);
+}
+
+export function cancelReplayCameraWait() {
+  state.replay.cameraWait = null;
+}
+
+// The rider camera is in place: no transition arc in flight and the chase
+// flight (which the arc hands over to, or which flies alone when no arc fits)
+// has settled.
+function cameraArrivedAtRider() {
+  return state.cameraMode === "follow" && !state.cameraTransition && !state.cameraFlightLoopActive;
 }
 
 export function pauseReplay({ silent = false } = {}) {
@@ -114,6 +155,14 @@ export function replayRemainingSeconds() {
   const replay = state.replay;
   if (!replay.timeline) return null;
   return Math.max(0, replay.timeline.durationSeconds - replay.elapsedSeconds);
+}
+
+// Wall-clock seconds left to watch at the chosen speed: a two-hour ride at
+// 4× is 30 minutes of playback (or recording).
+export function replayWatchSecondsLeft() {
+  const remaining = replayRemainingSeconds();
+  if (remaining === null) return null;
+  return remaining / Math.max(1e-6, state.replay.speed);
 }
 
 export function replayCaloriesKcal() {
@@ -213,8 +262,11 @@ function syncReplayScrubbers() {
     // Don't fight the user's drag.
     if (document.activeElement !== scrubber) scrubber.value = String(Math.round(replay.elapsedSeconds));
   }
+  // Ride time, then how long the rest takes to watch at the chosen speed.
+  const leftText = formatDuration(replayWatchSecondsLeft() ?? 0, "clock");
   for (const output of els.replayTimeOutputs) {
-    output.textContent = replay.timeline ? `${elapsedText} / ${durationText}` : "--";
+    output.textContent = replay.timeline ? `${elapsedText} / ${durationText} · ${leftText} left` : "--";
+    output.title = replay.timeline ? `Ride time elapsed / total · time left to watch at ${replay.speed}×` : "";
   }
   // The clock chip follows the playhead (ride time of day), see map-hud.
   if (replay.timeline) updateFullscreenLocalTime();
