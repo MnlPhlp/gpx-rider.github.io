@@ -3109,7 +3109,7 @@ input[type="color"] {
    3D map. Opacity-only visibility so the fallback to the 3D view cross-fades;
    pointer-events stay off so a map drag still reaches the 3D map (and takes
    the camera out of first person, which hides this layer again). Only the
-   viewer's attribution link accepts clicks. */
+   per-image attribution link accepts clicks. */
 .street-imagery-layer {
   position: absolute;
   inset: 0;
@@ -3131,15 +3131,34 @@ input[type="color"] {
   display: none;
 }
 
-/* The element MapillaryJS owns (it forces position: relative on it), sized
-   by its parent layer rather than by inset. */
-.street-imagery-layer > .street-imagery-viewer {
+/* The renderer's canvas (sfm-renderer.mjs sizes its drawing buffer to this
+   box) and the per-image credit the CC BY-SA license asks for. */
+.street-imagery-layer > .street-imagery-canvas {
+  display: block;
   width: 100%;
   height: 100%;
 }
 
-.street-imagery-layer .mapillary-attribution-container {
+.street-imagery-attribution {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: rgba(232, 234, 239, 0.8);
+  background: rgba(12, 16, 20, 0.6);
+  font: 600 10px/1.4 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-decoration: none;
   pointer-events: auto;
+}
+
+.street-imagery-attribution:hover {
+  color: #fff;
+}
+
+.street-imagery-attribution:empty {
+  display: none;
 }
 
 .street-imagery-chip {

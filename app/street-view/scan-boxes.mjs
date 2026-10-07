@@ -4,6 +4,8 @@
 // are fetched first, and quadrant subdivision for cells a source reports as
 // truncated. Pure: no DOM, no app state, no network. Cell keys are stable
 // across routes and sessions, so a source can cache responses per cell.
+// Also the two Graph API entity → app shape mappings (search candidate, and
+// the per-image metadata the renderer needs).
 //
 // Expects an enriched route (points carry `distance`, see route.mjs).
 
@@ -93,5 +95,59 @@ export function candidateFromMapillaryImage(image) {
     capturedAt: Number.isFinite(capturedAt) && capturedAt > 0 ? capturedAt : null,
     creator: image.creator?.username ?? null,
     ref: String(image.id),
+  };
+}
+
+function finiteOrNull(value) {
+  if (value == null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+// One Graph API image entity (fetched with the renderer's metadata fields) →
+// the normalized per-image metadata the playback plan and renderer consume
+// (sfm-camera.mjs builds the camera transform from it). Positions prefer
+// the SfM-computed ones; the originals are kept for the parallax pair test.
+// The thumbnail URL is picked by camera type (2048 px for 360° images, which
+// are spread over a full sphere; 1024 px otherwise). Returns null without an
+// id or position.
+export function imageMetadataFromMapillaryImage(image, { thumbSizePerspective = 1024, thumbSizeSpherical = 2048 } = {}) {
+  if (image?.id == null) return null;
+  const original = image.geometry?.coordinates;
+  const computed = image.computed_geometry?.coordinates;
+  const lat = finiteOrNull(computed?.[1]) ?? finiteOrNull(original?.[1]);
+  const lng = finiteOrNull(computed?.[0]) ?? finiteOrNull(original?.[0]);
+  if (lat == null || lng == null) return null;
+  const rawType = image.camera_type;
+  const cameraType = rawType === "spherical" || rawType === "equirectangular"
+    ? "spherical"
+    : rawType === "fisheye" ? "fisheye" : "perspective";
+  const size = cameraType === "spherical" ? thumbSizeSpherical : thumbSizePerspective;
+  const rotation = Array.isArray(image.computed_rotation) && image.computed_rotation.length === 3
+    ? image.computed_rotation.map(Number)
+    : null;
+  const capturedAt = finiteOrNull(image.captured_at);
+  return {
+    id: String(image.id),
+    lat,
+    lng,
+    originalLat: finiteOrNull(original?.[1]),
+    originalLng: finiteOrNull(original?.[0]),
+    altitude: finiteOrNull(image.computed_altitude),
+    rotation: rotation && rotation.every(Number.isFinite) ? rotation : null,
+    cameraParameters: Array.isArray(image.camera_parameters) ? image.camera_parameters.map(Number) : null,
+    cameraType,
+    scale: finiteOrNull(image.atomic_scale),
+    mergeId: image.merge_cc != null ? String(image.merge_cc) : null,
+    meshUrl: image.mesh?.url ?? null,
+    thumbUrl: image[`thumb_${size}_url`] ?? image.thumb_1024_url ?? image.thumb_2048_url ?? null,
+    width: finiteOrNull(image.width),
+    height: finiteOrNull(image.height),
+    orientation: finiteOrNull(image.exif_orientation) ?? 1,
+    quality: finiteOrNull(image.quality_score),
+    sequenceId: image.sequence ?? null,
+    capturedAt: capturedAt != null && capturedAt > 0 ? capturedAt : null,
+    creator: image.creator?.username ?? null,
+    compassDeg: finiteOrNull(image.computed_compass_angle) ?? finiteOrNull(image.compass_angle),
   };
 }

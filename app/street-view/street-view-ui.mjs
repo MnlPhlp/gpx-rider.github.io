@@ -1,42 +1,33 @@
 // Street imagery coordinator: shows real street-level photos in place of the
 // 3D view while the rider is in the first-person camera and imagery exists
 // for their position, fading back to the 3D view in gaps. It owns the layer
-// element and its fade, the HUD status chip, the per-route scan lifecycle
-// (keyed on route identity, so GPX loads, gallery loads and restored rides
-// all restart it without a hook in route-load), the mounted renderer, and a
-// light refresh loop. The provider-specific parts are behind two contracts —
-// a *source* (mapillary-source.mjs) that fills the pure frame index
-// (frame-index.mjs) and a *renderer* (mapillary-renderer.mjs) that shows a
-// frame — so a future "replay my own ride video" provider plugs in here
-// without touching the selection, fallback or coverage logic.
+// element and its fade, the HUD status chip, the per-route lifecycle keyed
+// on route identity (so GPX loads, gallery loads and restored rides all
+// restart it without a hook in route-load — the scan/plan/cache work itself
+// lives in street-view-plan.mjs), the mounted renderer, and a light refresh
+// loop. The provider-specific parts are
+// behind two contracts — a *source* (mapillary-source.mjs) that fills the
+// pure frame index (frame-index.mjs) and a *renderer* (sfm-renderer.mjs)
+// that plays a plan — so a future "replay my own ride video" provider plugs
+// in here without touching the planning, fallback or coverage logic.
 //
 // Why its own setTimeout loop instead of riding updateRideUi's slow cadence:
 // the layer must also react while the rider is parked — to a camera preset
 // change, or a manual map drag (endUserInteraction in follow-camera.mjs,
 // which does not run updateRideUi) that takes the camera out of first
-// person — the same reason camera-debug.mjs polls on its own.
+// person — the same reason camera-debug.mjs polls on its own. The renderer
+// samples the ride position itself every animation frame.
 
 import { isFirstPersonCameraView } from "../camera/camera-ui.mjs";
+import { currentRouteHeading } from "../camera/follow-camera.mjs";
 import { deployedMapillaryToken } from "../config.mjs";
 import { els, state } from "../core/state.mjs";
 import { STREET_IMAGERY } from "../core/tuning.mjs";
 import { registerHudComponent } from "../hud/screen-manager.mjs";
 import { currentSpeedKph, isMoving } from "../ride/movement.mjs";
-import { renderProfile } from "../route/profile-ui.mjs";
-import {
-  addCandidates,
-  approachFraction,
-  countFramesBy,
-  coveragePercent,
-  coverageSegments,
-  createFrameIndex,
-  frameByRef,
-  frameForProgress,
-  longestGapMeters,
-  nextFrame,
-} from "./frame-index.mjs";
-import { createMapillaryRenderer } from "./mapillary-renderer.mjs";
-import { createMapillarySource } from "./mapillary-source.mjs";
+import { chainPositionAt } from "./playback-plan.mjs";
+import { createSfmRenderer } from "./sfm-renderer.mjs";
+import { ensureStore, maybeBuildPlan, resetIndex, startRoute, startScan, updateCoverage } from "./street-view-plan.mjs";
 import { renderStreetImageryCoverage } from "./street-view-settings.mjs";
 
 export function resolveMapillaryToken() {
@@ -44,7 +35,7 @@ export function resolveMapillaryToken() {
 }
 
 // Boot: register the chip with the screen manager (center column, under the
-// climb banner and demo chip), stamp the fade duration, and keep the viewer
+// climb banner and demo chip), stamp the fade duration, and keep the canvas
 // sized to the layer through fullscreen/theater changes.
 export function initStreetImagery() {
   els.mapViewport.style.setProperty("--street-imagery-fade-ms", `${STREET_IMAGERY.fade_ms}ms`);
@@ -75,7 +66,7 @@ export function refreshStreetImageryCoverage() {
 
 // Coverage for the loaded route, scanning it first if needed — used by the
 // contribute dialog's "check coverage" even while the feature is switched
-// off (the scan then runs once, without mounting the viewer).
+// off (the scan then runs once, without mounting the renderer).
 export async function ensureRouteCoverage() {
   const si = state.streetImagery;
   const token = resolveMapillaryToken();
@@ -86,6 +77,17 @@ export async function ensureRouteCoverage() {
   await si.scanPromise;
   if (si.status === "token-error") throw new Error("token-error");
   return si.coverage;
+}
+
+// Size of the local photo/mesh cache, and emptying it (Settings).
+export async function imageryCacheStats() {
+  return (await ensureStore()).cacheStats();
+}
+
+export async function clearImageryCache() {
+  const si = state.streetImagery;
+  await (await ensureStore()).clearCache();
+  si.planFinal = false;
 }
 
 function ensureStreetImageryLoop() {
@@ -115,202 +117,80 @@ function stepStreetImagery() {
     return;
   }
   if (si.token) {
-    if (si.indexRoute !== route) startScan(route);
+    if (si.indexRoute !== route) startRoute(route);
     ensureRenderer();
+    maybeBuildPlan();
   }
 
   if (!isFirstPersonCameraView()) {
+    si.renderer?.setActive(false);
     setLayerVisible(false);
     els.streetImageryChip.hidden = true;
     return;
   }
+  si.renderer?.setActive(true);
 
-  let frame = null;
-  if (si.index && si.status !== "token-error") {
-    frame = frameForProgress(si.index, state.progressMeters, si.current, selectionOptions());
-  }
-  if (!frame) {
-    si.current = null;
-  } else if (si.renderer) {
-    frame = driveRenderer(frame);
-  }
-  if (frame && frame !== si.current?.frame) si.current = { frame, sinceMs: performance.now() };
-  setLayerVisible(Boolean(frame && si.renderer));
-  renderChip(frame);
+  const position = si.plan && si.status !== "token-error"
+    ? chainPositionAt(si.plan, state.progressMeters, { maxBehindMeters: STREET_IMAGERY.max_behind_meters, maxAheadMeters: STREET_IMAGERY.max_ahead_meters })
+    : null;
+  const showing = Boolean(position && si.renderer?.isShowing());
+  setLayerVisible(showing);
+  renderChip(position, showing);
 }
 
-// Keep the viewer rolling: if the image it is on (or heading to) is still
-// within reach of the rider, let it continue and queue the next image behind
-// it so the motion never stops; otherwise hard-cut to the frame the selection
-// wants (first show, a seek, a gap). Returns the frame actually on screen.
-function driveRenderer(wanted) {
-  const si = state.streetImagery;
-  const c = STREET_IMAGERY;
-  const progress = state.progressMeters;
-  const onScreen = frameByRef(si.index, si.renderer.currentRef());
-  const inReach = onScreen
-    && onScreen.distanceMeters >= progress - c.max_behind_meters
-    && onScreen.distanceMeters <= progress + c.max_ahead_meters;
-  let shown = wanted;
-  if (inReach) {
-    shown = onScreen;
-  } else if (si.renderer.showFrame(wanted) && state.cameraDebugEnabled) {
-    console.debug(`[street-imagery] hard cut → ${wanted.ref}`);
-  }
-  const upcoming = nextFrame(si.index, shown, selectionOptions());
-  if (upcoming) si.renderer.queueFrame(upcoming);
-  si.renderer.pace({ progressMeters: progress, speedMps: isMoving() ? currentSpeedKph() / 3.6 : 0 });
-  si.renderer.setApproach(approachFraction(si.index, shown, progress));
-  return shown;
-}
-
-function handleViewerMotion(inMotion) {
-  const si = state.streetImagery;
-  const now = performance.now();
-  if (inMotion) {
-    si.motionStartedMs = now;
-  } else if (state.cameraDebugEnabled && si.motionStartedMs) {
-    console.debug(`[street-imagery] transition took ${((now - si.motionStartedMs) / 1000).toFixed(2)} s`);
-  }
-  si.inMotion = inMotion;
-}
-
-function selectionOptions() {
-  const c = STREET_IMAGERY;
+function sampleRendererInputs() {
   return {
-    nowMs: performance.now(),
-    minDwellMs: c.min_dwell_ms,
-    switchFraction: c.switch_hysteresis_fraction,
-    maxBehindMeters: c.max_behind_meters,
-    maxAheadMeters: c.max_ahead_meters,
-    minAdvanceMeters: c.min_advance_meters,
-    sameSequenceBonusMeters: c.same_sequence_bonus_meters,
-    ownImageryBonusMeters: c.own_imagery_bonus_meters,
-    panoBonusMeters: c.pano_bonus_meters,
-    preferredCreator: state.mapillaryUsername || null,
+    progressMeters: state.progressMeters,
+    speedMps: isMoving() ? currentSpeedKph() / 3.6 : 0,
+    routeBearingDeg: currentRouteHeading(),
+    debug: state.cameraDebugEnabled,
   };
 }
 
-// --- scan lifecycle --------------------------------------------------------
-
-function startScan(route) {
-  const si = state.streetImagery;
-  resetIndex();
-  const c = STREET_IMAGERY;
-  const index = createFrameIndex(route, {
-    maxOffsetMeters: c.max_offset_meters,
-    headingToleranceDegrees: c.heading_tolerance_degrees,
-    bearingSampleMeters: c.heading_sample_meters,
-  });
-  si.index = index;
-  si.indexRoute = route;
-  si.status = "scanning";
-  if (!si.source) si.source = createMapillarySource({ token: si.token, config: c });
-
-  const controller = new AbortController();
-  si.scanController = controller;
-  let batchesSinceCoverage = 0;
-  si.scanPromise = si.source.scanRoute(route, {
-    signal: controller.signal,
-    startMeters: state.progressMeters,
-    onCandidates: (candidates) => {
-      if (si.index !== index) return;
-      addCandidates(index, candidates);
-      batchesSinceCoverage += 1;
-      if (batchesSinceCoverage >= 10) {
-        batchesSinceCoverage = 0;
-        updateCoverage();
-      }
-    },
-    onProgress: (progress) => {
-      if (si.index !== index) return;
-      si.scan = progress;
-      renderStreetImageryCoverage();
-    },
-  }).then(() => {
-    if (si.index !== index) return;
-    si.scanDone = true;
-    si.status = "ready";
-    updateCoverage();
-  }).catch((error) => {
-    if (si.index !== index || controller.signal.aborted) return;
-    si.scanDone = true;
-    if (error?.code === "token") {
-      si.status = "token-error";
-    } else {
-      si.status = "ready";
-      console.warn("[street-imagery] route scan failed", error);
-    }
-    updateCoverage();
-  });
-}
-
-function abortScan() {
-  const si = state.streetImagery;
-  si.scanController?.abort();
-  si.scanController = null;
-}
-
-function resetIndex() {
-  const si = state.streetImagery;
-  abortScan();
-  si.index = null;
-  si.indexRoute = null;
-  si.scanPromise = null;
-  si.scanDone = false;
-  si.scan = { done: 0, total: 0 };
-  si.coverage = null;
-  si.current = null;
-  renderProfile();
-  renderStreetImageryCoverage();
-}
-
-// A different token means a different source and viewer session: start over.
+// A different token means a different source, store and renderer session.
 function resetForToken(token) {
   const si = state.streetImagery;
   resetIndex();
   unmountRenderer();
   si.source = null;
+  si.store = null;
+  si.storePromise = null;
   si.token = token;
   si.status = token ? "scanning" : "no-token";
 }
 
-function updateCoverage() {
-  const si = state.streetImagery;
-  if (!si.index) return;
-  const segments = coverageSegments(si.index, STREET_IMAGERY.coverage_gap_meters);
-  si.coverage = {
-    segments,
-    percent: coveragePercent(segments, si.index.totalMeters),
-    frames: si.index.frames.length,
-    own: countFramesBy(si.index, state.mapillaryUsername || null),
-    longestGapMeters: longestGapMeters(segments, si.index.totalMeters),
-  };
-  renderProfile();
-  renderStreetImageryCoverage();
-}
-
-// --- renderer + layer --------------------------------------------------------
+// --- renderer + layer ------------------------------------------------------------------
 
 function ensureRenderer() {
   const si = state.streetImagery;
   if (si.renderer || si.rendererPromise || si.status === "load-error") return;
-  const renderer = createMapillaryRenderer({
-    token: si.token,
-    config: STREET_IMAGERY,
-    onError: (error) => console.warn("[street-imagery] viewer", error),
-    onMotion: handleViewerMotion,
-  });
-  const promise = renderer.mount(els.streetImageryLayer).then(() => {
+  if (performance.now() < si.rendererRetryAt) return;
+  const promise = ensureStore().then(async (store) => {
+    if (si.rendererPromise !== promise) return;
+    const renderer = createSfmRenderer({
+      store,
+      config: STREET_IMAGERY,
+      sampleInputs: sampleRendererInputs,
+      onError: (error) => {
+        if (error?.code === "context-lost") {
+          console.warn("[street-imagery] WebGL context lost; restarting the renderer");
+          unmountRenderer();
+          si.rendererRetryAt = performance.now() + 1000;
+          return;
+        }
+        console.warn("[street-imagery] renderer", error);
+      },
+    });
+    await renderer.mount(els.streetImageryLayer);
     if (si.rendererPromise !== promise) {
-      // Torn down (disabled / token changed) while the library was loading.
       renderer.unmount();
       return;
     }
     si.rendererPromise = null;
     si.renderer = renderer;
+    if (si.plan) renderer.setPlan(si.plan);
   }).catch((error) => {
-    console.warn("[street-imagery] viewer failed to load", error);
+    console.warn("[street-imagery] renderer failed to start", error);
     if (si.rendererPromise === promise) {
       si.rendererPromise = null;
       si.status = "load-error";
@@ -326,7 +206,7 @@ function unmountRenderer() {
   const renderer = si.renderer;
   si.renderer = null;
   if (!renderer) return;
-  // Let the fade-out finish before the viewer's canvas disappears.
+  // Let the fade-out finish before the canvas disappears.
   setTimeout(() => renderer.unmount(), STREET_IMAGERY.fade_ms);
 }
 
@@ -363,6 +243,8 @@ function shutdown(status) {
   resetIndex();
   unmountRenderer();
   si.source = null;
+  si.store = null;
+  si.storePromise = null;
   si.token = null;
   si.status = status;
   els.streetImageryChip.hidden = true;
@@ -370,7 +252,7 @@ function shutdown(status) {
 
 // --- HUD chip ------------------------------------------------------------------
 
-function renderChip(frame) {
+function renderChip(position, showing) {
   const si = state.streetImagery;
   const c = STREET_IMAGERY;
   let text;
@@ -378,20 +260,23 @@ function renderChip(frame) {
   // "live" = a photo is on screen right now; "gap" = riding the 3D view
   // because nothing covers this spot; "status" = scanning / token trouble.
   let chipState = "status";
+  const node = showing ? si.plan.nodes.find((entry) => entry.ref === si.renderer.currentRef()) : null;
   if (!si.token) {
     text = c.chip_no_token;
   } else if (si.status === "token-error") {
     text = c.chip_token_rejected;
   } else if (si.status === "load-error") {
     text = c.chip_load_error;
-  } else if (frame) {
-    const year = frame.capturedAt ? ` · ${new Date(frame.capturedAt).getFullYear()}` : "";
-    const creator = frame.creator ? ` · @${frame.creator}` : "";
+  } else if (node) {
+    const year = node.meta.capturedAt ? ` · ${new Date(node.meta.capturedAt).getFullYear()}` : "";
+    const creator = node.meta.creator ? ` · @${node.meta.creator}` : "";
     text = `${c.chip_prefix} · © Mapillary${creator}${year}`;
     chipState = "live";
   } else if (!si.scanDone) {
     const percent = si.scan.total ? Math.round((si.scan.done / si.scan.total) * 100) : 0;
     text = `${c.chip_scanning} ${percent}%`;
+  } else if (!si.plan || (position && !showing)) {
+    text = c.chip_planning;
   } else {
     text = c.chip_no_imagery;
     offerContribute = true;

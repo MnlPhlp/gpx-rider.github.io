@@ -954,10 +954,19 @@
               </p>
             </div>
             <div class="settings-divider"></div>
+            <div class="setting-row">
+              <div class="setting-row-text">
+                <span id="imageryCacheStat" class="setting-row-label">Local cache: —</span>
+                <span class="setting-row-hint">photos, meshes and route plans kept in this browser so a route you rode before plays without the network</span>
+              </div>
+              <button id="clearImageryCacheBtn" type="button" class="btn btn-ghost btn-sm">Clear</button>
+            </div>
+            <div class="settings-divider"></div>
             <button id="contributeOpenBtn" type="button" class="btn btn-ghost">Contribute your own imagery…</button>
             <p class="settings-note">
               Privacy: while this is on, the map cells the route passes through are
-              sent to Mapillary (Meta) to find images. Nothing is sent while it is off.
+              sent to Mapillary (Meta) to find images, and the photos shown are
+              fetched from it. Nothing is sent while it is off.
             </p>
             <p id="streetImageryCredit" class="settings-note"></p>
           </section>

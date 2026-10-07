@@ -194,29 +194,40 @@ export const state = {
   // (prefers their own uploads), plus the feature's live runtime state in one
   // object — the frame index for the loaded route (indexRoute is the route it
   // was built for, so a route swap is detected by identity), the in-flight
-  // scan, the mounted renderer, the frame on screen, and a status for the chip
+  // scan, the playback plan built from the index (planKey identifies the
+  // cached one; planFinal = built from the complete scan), the asset store
+  // and its database, the mounted renderer, and a status for the chip
   // ("off" | "no-token" | "scanning" | "ready" | "token-error" | "load-error").
   streetImageryEnabled: DEFAULT_STREET_IMAGERY_ENABLED,
   mapillaryToken: "",
   mapillaryUsername: "",
   streetImagery: {
+    token: null,
     index: null,
     indexRoute: null,
     scanController: null,
+    scanPromise: null,
     scanDone: false,
-    source: null,
-    renderer: null,
-    rendererPromise: null,
-    current: null,
-    visible: false,
-    status: "off",
     scan: { done: 0, total: 0 },
     coverage: null,
+    source: null,
+    dbPromise: null,
+    storePromise: null,
+    store: null,
+    plan: null,
+    planKey: null,
+    planPromise: null,
+    planController: null,
+    planFinal: false,
+    planBuiltAt: -Infinity,
+    planIndexSize: 0,
+    renderer: null,
+    rendererPromise: null,
+    rendererRetryAt: 0,
+    visible: false,
+    status: "off",
     loopTimer: null,
-    // Viewer transition in progress (movestart/moveend) and its start time;
     // coverTimer delays hiding the 3D map until the layer's fade-in is done.
-    inMotion: false,
-    motionStartedMs: 0,
     coverTimer: null,
   },
   cameraDebugEnabled: DEFAULT_CAMERA_DEBUG_ENABLED,
@@ -479,6 +490,8 @@ export const els = {
   mapillaryUsernameInput: document.querySelector("#mapillaryUsernameInput"),
   streetImageryCoverage: document.querySelector("#streetImageryCoverage"),
   streetImageryCredit: document.querySelector("#streetImageryCredit"),
+  imageryCacheStat: document.querySelector("#imageryCacheStat"),
+  clearImageryCacheBtn: document.querySelector("#clearImageryCacheBtn"),
   contributeOpenBtn: document.querySelector("#contributeOpenBtn"),
   contributeDialog: document.querySelector("#contributeDialog"),
   contributeCloseBtn: document.querySelector("#contributeCloseBtn"),

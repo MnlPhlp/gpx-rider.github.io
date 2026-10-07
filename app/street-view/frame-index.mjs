@@ -2,13 +2,13 @@
 // core of the street imagery feature. Candidates (an image or a video
 // instant with a position and, usually, a heading) are projected onto the
 // route, kept only when they sit on the road and face along it, and stored
-// sorted by distance along the route. frameForProgress then picks what to
-// show at a given progress with hysteresis so playback doesn't ping-pong
-// between neighbors, and the coverage helpers summarize where imagery
-// exists. A frame's `ref` is opaque here: a Mapillary image id today, a
-// video timestamp for a future "replay my own ride" source. Pure: no DOM,
-// no app state; every threshold is passed in (the app reads them from
-// tuning.yaml's street_imagery section).
+// sorted by distance along the route. nextFrame steps through them at the
+// playback distance (playback-plan.mjs chains those steps into a route's
+// plan), and the coverage helpers summarize where imagery exists. A
+// frame's `ref` is opaque here: a Mapillary image id today, a video
+// timestamp for a future "replay my own ride" source. Pure: no DOM, no app
+// state; every threshold is passed in (the app reads them from tuning.yaml's
+// street_imagery section).
 //
 // Candidate shape: { lat, lng, headingDeg|null, isPano, sequenceId,
 //                    capturedAt, creator, ref }
@@ -21,12 +21,6 @@ const DEFAULT_GRID_CELL_DEGREES = 0.001;
 
 export function wrap180(degrees) {
   return ((((degrees + 180) % 360) + 360) % 360) - 180;
-}
-
-// Basic x coordinate ([0, 1] across the image) that points a 360° image
-// along the route: the viewer centers x = 0.5 on the image's compass angle.
-export function panoCenterX(routeHeadingDeg, compassDeg) {
-  return 0.5 + wrap180(routeHeadingDeg - compassDeg) / 360;
 }
 
 export function createFrameIndex(route, {
@@ -174,11 +168,11 @@ export function frameByRef(index, ref) {
   return ref == null ? null : index.frameByRef.get(refKey(ref)) ?? null;
 }
 
-// Score shared by frameForProgress and nextFrame: along-route distance from
-// `originMeters`, minus the bonuses that keep playback coherent — staying in
-// the sequence of `referenceFrame` (the viewer can animate between images of
-// one capture run; a jump to another is a hard cut), the rider's own uploads,
-// and 360° images (which always face the road).
+// Score for nextFrame: along-route distance from `originMeters`, minus the
+// bonuses that keep playback coherent — staying in the sequence of
+// `referenceFrame` (photos of one capture run share a reconstruction, so the
+// renderer can move between them; a jump to another is a cut), the rider's
+// own uploads, and 360° images (which always face the road).
 function frameScore(frame, originMeters, referenceFrame, {
   sameSequenceBonusMeters = 0,
   ownImageryBonusMeters = 0,
@@ -208,8 +202,7 @@ function bestFrame(frames, from, to, originMeters, referenceFrame, options) {
 
 // The frame playback should continue to after `frame`: the best-scoring one
 // between minAdvanceMeters and maxAheadMeters further along the route, or
-// null when a gap follows. Lets a renderer queue the next image behind the
-// transition it is already running, so motion never stops between photos.
+// null when a gap follows.
 export function nextFrame(index, frame, { minAdvanceMeters = 0, maxAheadMeters, ...options }) {
   const frames = index.frames;
   const from = Math.max(
@@ -243,74 +236,6 @@ function upperBound(frames, meters) {
     else high = mid;
   }
   return low;
-}
-
-// Which frame to show at `progressMeters`.
-//   current: { frame, sinceMs } for the frame on screen, or null.
-//   Returns a frame (the *same object* as current.frame when nothing should
-//   change) or null when no frame is within reach — the caller then fades
-//   back to the 3D view.
-// Selection: within the reach window [p − maxBehind, p + maxAhead] the frame
-// with the lowest score wins, score = along-route distance from the rider
-// minus bonuses for staying in the current sequence (visual continuity),
-// for the rider's own uploads, and for 360° images (always face the road).
-// Hysteresis: while the current frame is still in reach, we only advance to
-// a frame at least minAdvanceMeters ahead of it (dense areas have a frame
-// every meter or two; stepping through all of them is constant churn, and
-// ~10 m is where the view actually changes), once the rider has passed
-// `switchFraction` of the way to it and the current frame has been up for
-// at least minDwellMs — otherwise two neighbors would flicker back and forth
-// around their midpoint.
-export function frameForProgress(index, progressMeters, current, {
-  nowMs,
-  minDwellMs,
-  switchFraction,
-  maxBehindMeters,
-  maxAheadMeters,
-  minAdvanceMeters = 0,
-  sameSequenceBonusMeters = 0,
-  ownImageryBonusMeters = 0,
-  panoBonusMeters = 0,
-  preferredCreator = null,
-}) {
-  const frames = index.frames;
-  const start = lowerBound(frames, progressMeters - maxBehindMeters);
-  const end = upperBound(frames, progressMeters + maxAheadMeters);
-  if (start >= end) return null;
-
-  const currentFrame = current?.frame ?? null;
-  const scoring = { sameSequenceBonusMeters, ownImageryBonusMeters, panoBonusMeters, preferredCreator };
-  const best = (from, to) => bestFrame(frames, from, to, progressMeters, currentFrame, scoring);
-
-  const currentInReach = currentFrame
-    && currentFrame.distanceMeters >= progressMeters - maxBehindMeters
-    && currentFrame.distanceMeters <= progressMeters + maxAheadMeters;
-  if (!currentInReach) return best(start, end);
-
-  const aheadStart = Math.max(
-    upperBound(frames, currentFrame.distanceMeters),
-    lowerBound(frames, currentFrame.distanceMeters + minAdvanceMeters),
-  );
-  if (aheadStart >= end) return currentFrame;
-  const next = best(aheadStart, end);
-  if (!next) return currentFrame;
-  const switchAt = currentFrame.distanceMeters + switchFraction * (next.distanceMeters - currentFrame.distanceMeters);
-  const dwelled = nowMs - (current.sinceMs ?? -Infinity) >= minDwellMs;
-  return progressMeters >= switchAt && dwelled ? next : currentFrame;
-}
-
-// How far the rider has progressed from `frame` toward the next frame along
-// the route, 0..1 (1 when there is no next frame or the rider is past it).
-// Drives the "approach zoom": the renderer zooms into the current photo as
-// the rider closes in on where the next one was taken, so the cut lands at
-// the point the zoomed view was already converging on.
-export function approachFraction(index, frame, progressMeters) {
-  const nextIndex = upperBound(index.frames, frame.distanceMeters);
-  const next = index.frames[nextIndex];
-  if (!next) return 1;
-  const span = next.distanceMeters - frame.distanceMeters;
-  if (!(span > 0)) return 1;
-  return Math.max(0, Math.min(1, (progressMeters - frame.distanceMeters) / span));
 }
 
 // Covered runs of the route: each frame covers ±gapMeters/2 around itself and

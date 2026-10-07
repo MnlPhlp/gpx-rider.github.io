@@ -1,7 +1,8 @@
 // Street imagery settings panel: reads the switch, token and username inputs
 // into state, persists and applies them, writes state back into the inputs,
 // and renders the coverage/token readouts (shared with the contribute
-// dialog's coverage line). The behavior itself lives in street-view-ui.mjs.
+// dialog's coverage line) and the local imagery cache size with its clear
+// button. The behavior itself lives in street-view-ui.mjs.
 
 import { els, state } from "../core/state.mjs";
 import { STREET_IMAGERY } from "../core/tuning.mjs";
@@ -9,6 +10,8 @@ import { formatDistance } from "../core/units.mjs";
 import { saveSettings } from "../storage/persistence.mjs";
 import {
   applyStreetImagerySetting,
+  clearImageryCache,
+  imageryCacheStats,
   refreshStreetImageryCoverage,
   resolveMapillaryToken,
 } from "./street-view-ui.mjs";
@@ -34,6 +37,33 @@ export function syncStreetImageryControls() {
   els.mapillaryTokenInput.value = state.mapillaryToken;
   els.mapillaryUsernameInput.value = state.mapillaryUsername;
   renderStreetImageryCoverage();
+  renderImageryCacheStat();
+}
+
+// "Local cache: 212 MB · 1,840 files" — photos, meshes and route plans kept
+// in this browser so a route ridden before plays without the network.
+export async function renderImageryCacheStat() {
+  try {
+    const { bytes, count } = await imageryCacheStats();
+    const megabytes = bytes / 1e6;
+    els.imageryCacheStat.textContent = count
+      ? `Local cache: ${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB · ${count.toLocaleString()} file${count === 1 ? "" : "s"}`
+      : "Local cache: empty";
+    els.clearImageryCacheBtn.disabled = !count;
+  } catch {
+    els.imageryCacheStat.textContent = "Local cache: unavailable in this browser";
+    els.clearImageryCacheBtn.disabled = true;
+  }
+}
+
+export async function clearImageryCacheFromSettings() {
+  els.clearImageryCacheBtn.disabled = true;
+  try {
+    await clearImageryCache();
+  } catch (error) {
+    console.warn("[street-imagery] could not clear the cache", error);
+  }
+  renderImageryCacheStat();
 }
 
 // "94% of this route · 1,208 images · 12 yours · longest gap 0.3 km"

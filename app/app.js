@@ -78,7 +78,7 @@ import {
   enableStreetImageryAndRide,
   openContributeDialog,
 } from "./street-view/contribute-ui.mjs";
-import { saveMapillaryToken, updateStreetImagerySettingsFromControls } from "./street-view/street-view-settings.mjs";
+import { clearImageryCacheFromSettings, saveMapillaryToken, updateStreetImagerySettingsFromControls } from "./street-view/street-view-settings.mjs";
 import { initStreetImagery } from "./street-view/street-view-ui.mjs";
 import { registerClimbBannerHud } from "./route/climbs-ui.mjs";
 import { initScreenManager } from "./hud/screen-manager.mjs";
@@ -254,6 +254,7 @@ function bindEvents() {
   els.streetImageryInput.addEventListener("change", updateStreetImagerySettingsFromControls);
   els.mapillaryUsernameInput.addEventListener("change", updateStreetImagerySettingsFromControls);
   els.mapillaryTokenSaveBtn.addEventListener("click", saveMapillaryToken);
+  els.clearImageryCacheBtn.addEventListener("click", clearImageryCacheFromSettings);
   els.mapillaryTokenInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();

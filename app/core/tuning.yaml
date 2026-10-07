@@ -562,11 +562,6 @@ street_imagery:
   # Default for the "Street imagery" switch — off: opt-in, see above.
   enabled: false
 
-  # MapillaryJS viewer (MIT), loaded on first enable. Pinned version; to
-  # self-host, vendor the two files into app/assets/ and point these at them.
-  viewer_script_url: "https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js"
-  viewer_style_url: "https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.css"
-
   # Graph API image search, and the entity fields requested per image.
   graph_base_url: "https://graph.mapillary.com"
   image_fields: ["id", "geometry", "compass_angle", "computed_compass_angle", "is_pano", "sequence", "captured_at", "creator"]
@@ -594,51 +589,25 @@ street_imagery:
   heading_tolerance_degrees: 45
   heading_sample_meters: 4
 
-  # Reach window around the rider (m) in which a frame may be shown; outside
-  # it the 3D view fades back in.
+  # Reach window around the rider (m): before the first photo of a run, in a
+  # gap, or past the last one, the nearest photo is held while the rider is
+  # this close to it; beyond that the 3D view fades back in.
   max_behind_meters: 40
   max_ahead_meters: 60
 
-  # Playback cadence. Only step to a frame at least min_advance_meters ahead
-  # of the one on screen (dense areas have a frame every 1–2 m; ~10 m is
-  # Mapillary's own in-sequence spacing and where the view actually changes,
-  # so this sets the pace by distance, not by clock), advance once the rider
-  # has covered switch_hysteresis_fraction of the way to it, and never sooner
-  # than min_dwell_ms after the last switch.
+  # Playback step: the chain of photos a route plays steps to a frame at
+  # least min_advance_meters ahead of the previous one (dense areas have a
+  # frame every 1–2 m; ~10 m is Mapillary's own in-sequence spacing and where
+  # the view actually changes), never more than max_ahead_meters.
   min_advance_meters: 10
-  switch_hysteresis_fraction: 0.5
-  min_dwell_ms: 500
-
-  # Experimental approach zoom, OFF by default (0): the current photo zooms
-  # in as the rider closes in on the next frame's position, reaching this
-  # MapillaryJS zoom level (1 = 2× magnification, max 3) right at it. In
-  # practice it reads as a step *back* at every cut — the next photo opens at
-  # zoom 0 with a wider field of view than the zoomed-in one it replaces, and
-  # a zoom can only mimic a meter or two of travel while images are ~10 m
-  # apart — so the viewer's own sequence transition is left to carry the
-  # forward motion. Kept as a knob for experiments.
-  approach_zoom_max: 0
 
   # Selection bonuses, in meters of "closer": stay in the current capture
-  # sequence (smooth transitions), prefer the user's own uploads (set the
-  # Mapillary username in Settings), prefer 360° images.
+  # sequence (parallax transitions need the same reconstruction), prefer the
+  # user's own uploads (set the Mapillary username in Settings), prefer 360°
+  # images.
   same_sequence_bonus_meters: 40
   own_imagery_bonus_meters: 30
   pano_bonus_meters: 5
-
-  # Continuous motion: the viewer is fed one image ahead (so its hops chain
-  # with no pause and no ease-in/out) and a tracking controller scales its
-  # transition speed every tick so each hop finishes exactly when the rider
-  # reaches that image's position. The viewer's own hop takes
-  # transition_base_seconds at native pace; the coefficient we apply is
-  # clamped to [motion_coefficient_min, _max] (very slow riding would
-  # otherwise freeze a half-finished hop; very fast riding would blur). Below
-  # motion_min_speed_mps the native pace is used so a stopped rider still
-  # sees the hop finish.
-  transition_base_seconds: 0.7
-  motion_coefficient_min: 0.15
-  motion_coefficient_max: 3
-  motion_min_speed_mps: 0.5
 
   # Hide the 3D map (display: none) while the photo layer fully covers it,
   # so the covered map stops rendering and streaming tiles; it is shown again
@@ -648,8 +617,7 @@ street_imagery:
   # Vertical field of view (deg) when showing a 360° image.
   pano_fov_degrees: 80
 
-  # Layer cross-fade (ms) and how often the layer re-evaluates (ms) — the
-  # approach zoom is stepped at this rate, so keep it short.
+  # Layer cross-fade (ms) and how often the coordinator re-evaluates (ms).
   fade_ms: 400
   refresh_ms: 100
 
@@ -660,19 +628,100 @@ street_imagery:
   profile_strip_px: 3
   profile_strip_color: "rgba(99, 196, 255, 0.85)"
 
-  # Credit line (CC BY-SA imagery; the viewer also shows per-image credits),
-  # and where to get a free client token.
+  # Credit line (CC BY-SA imagery; the layer also credits each image), where
+  # an image's page lives, and where to get a free client token.
   attribution: "Street imagery © Mapillary contributors, CC BY-SA 4.0"
   mapillary_home_url: "https://www.mapillary.com/"
+  mapillary_image_url: "https://www.mapillary.com/app/?pKey="
   token_help_url: "https://www.mapillary.com/dashboard/developers"
 
   # HUD chip texts.
   chip_prefix: "Street imagery"
   chip_scanning: "Street imagery · scanning route"
+  chip_planning: "Street imagery · preparing route"
   chip_no_imagery: "No street imagery here yet"
   chip_no_token: "Street imagery needs a Mapillary token · see Settings"
   chip_token_rejected: "Mapillary rejected the token · see Settings"
-  chip_load_error: "Street imagery viewer failed to load"
+  chip_load_error: "Street imagery renderer failed to start"
+
+  # The app's own renderer for Mapillary's SfM data (sfm-*.mjs): it projects
+  # each photo onto its reconstructed proxy mesh and moves a virtual camera
+  # between consecutive photos as the rider moves. The constants are the
+  # ones MapillaryJS uses, so the picture matches the official viewer.
+  renderer:
+    # Per-image entity fields the renderer needs (pose, camera model, mesh
+    # and thumbnail URLs, quality), fetched in batches of metadata_batch_size
+    # ids (the API maximum) with a request timeout.
+    metadata_fields: ["id", "computed_geometry", "geometry", "sequence", "altitude", "atomic_scale", "camera_parameters", "camera_type", "captured_at", "compass_angle", "computed_altitude", "computed_compass_angle", "computed_rotation", "creator", "exif_orientation", "height", "merge_cc", "mesh", "quality_score", "sfm_cluster", "thumb_1024_url", "thumb_2048_url", "width"]
+    metadata_batch_size: 200
+    request_timeout_ms: 15000
+
+    # Thumbnail size (px, longest edge) per camera type. 360° images are
+    # spread over a sphere so they get the larger one.
+    thumb_size_perspective: 1024
+    thumb_size_spherical: 2048
+
+    # Proxy geometry: mesh vertices are kept between min_depth_meters and
+    # plane_depth_meters (sphere_radius_meters for 360°) in front of the
+    # camera; the four image-plane corner vertices are widened by
+    # undistortion_margin_factor so undistortion never exposes an edge. The
+    # flat fallback for images without a mesh sits at the far distance.
+    plane_depth_meters: 200
+    sphere_radius_meters: 200
+    min_depth_meters: 5
+    undistortion_margin_factor: 3
+
+    # Two consecutive photos are blended with parallax (a moving camera)
+    # only when both sit in the same SfM reconstruction and their original
+    # GPS positions are closer than this (m); otherwise the hop is a cut.
+    parallax_max_meters: 25
+
+    # Frames below this Mapillary quality score (0–1: blur, occlusion,
+    # glare, weather) are left out of the playback chain. 0 keeps all.
+    min_quality_score: 0
+
+    # Field of view fitting: "fill" crops the photo to fill the viewport
+    # (scaled by fov_fill_factor), "letterbox" shows all of it. The camera's
+    # look-at point sits this far along the optical axis.
+    fov_mode: fill
+    fov_fill_factor: 0.995
+    lookat_depth_meters: 10
+
+    # Blending: after a hop completes, the previous photo (drawn behind the
+    # new one to fill its holes) fades out by this much per frame. Cut links
+    # cross-fade a snapshot of the last frame over the new photo during the
+    # last cut_fade_fraction of the link.
+    old_fade_per_frame: 0.05
+    cut_fade_fraction: 0.25
+
+    # Camera path between photos: "linear" interpolates straight from one
+    # pose to the next (the viewer's behavior); "catmull" runs a Catmull-Rom
+    # spline through the surrounding photos of the same reconstruction so
+    # position and view direction bend smoothly through each photo.
+    path_smoothing: linear
+
+    # Prefetch: photos and meshes for this many seconds of travel at the
+    # current speed are loaded ahead, and never fewer than prefetch_min_links
+    # hops; at most max_gpu_nodes images stay uploaded on the GPU.
+    prefetch_seconds: 20
+    prefetch_min_links: 4
+    max_gpu_nodes: 10
+
+    # While the coverage scan is still running, an interim plan is rebuilt
+    # from what has been found so far at most this often (ms), so playback
+    # starts on the road ahead before the whole route is scanned.
+    interim_plan_ms: 3000
+
+    # Rendering: device pixel ratio cap for the photo canvas (the thumbnails
+    # are 1024 px anyway) and the color behind the photos.
+    max_pixel_ratio: 1.5
+    clear_color: "#0f0f0f"
+
+    # Local cache (IndexedDB) of photo + mesh bytes and route plans, evicted
+    # least-recently-used past this many bytes. plan_version invalidates
+    # every cached plan when the planning rules change.
+    cache_max_bytes: 400000000
+    plan_version: 1
 
 # --- Profile segment selection -----------------------------------------------
 profile_segment_selection:
