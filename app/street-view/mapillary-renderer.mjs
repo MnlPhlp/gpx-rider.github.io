@@ -4,7 +4,16 @@
 // provider contract the coordinator (street-view-ui.mjs) talks to:
 //
 //   renderer: { mount(container) → Promise, showFrame(frame, { headingDeg, speedMps }),
-//               setApproach(fraction), setVisible(bool), resize(), unmount() }
+//               setMotionSpeed(coefficient), setApproach(fraction), setVisible(bool),
+//               resize(), unmount() }
+//   plus an `onMotion(inMotion)` callback so the coordinator knows when a
+//   transition is running.
+//
+// setMotionSpeed reaches into MapillaryJS internals (the navigator's state
+// service `setSpeed`, a 0–10 coefficient on the traversing animation; the
+// viewer has no public API for it). The version is pinned in tuning.yaml and
+// the call is guarded, so a future bundle without it degrades to the
+// viewer's fixed-pace transitions instead of breaking.
 //
 // A <video>-based renderer for a future "replay my own ride" source would
 // implement the same shape (using speedMps to pace playback; ignored here).
@@ -63,12 +72,13 @@ export function loadMapillaryViewer(config) {
   return viewerLibraryPromise;
 }
 
-export function createMapillaryRenderer({ token, config, onError = () => {} }) {
+export function createMapillaryRenderer({ token, config, onError = () => {}, onMotion = () => {} }) {
   let viewer = null;
   let container = null;
   let host = null;
   let shownRef = null;
   let pendingRef = null;
+  let motionSpeed = 1;
 
   return {
     id: "mapillary",
@@ -101,6 +111,24 @@ export function createMapillaryRenderer({ token, config, onError = () => {} }) {
           attribution: true,
         },
       });
+      viewer.on("movestart", () => onMotion(true));
+      viewer.on("moveend", () => onMotion(false));
+    },
+
+    // Scale the viewer's transition animation: 1 is MapillaryJS's own pace,
+    // 0.5 takes twice as long, 2 half as long. Re-applied every tick by the
+    // coordinator because the viewer resets it on some state changes.
+    setMotionSpeed(coefficient) {
+      const stateService = viewer?._navigator?.stateService;
+      if (!stateService || typeof stateService.setSpeed !== "function") return;
+      const next = Math.max(0.01, Math.min(10, coefficient));
+      if (next === motionSpeed) return;
+      motionSpeed = next;
+      try {
+        stateService.setSpeed(next);
+      } catch (error) {
+        onError(error);
+      }
     },
 
     showFrame(frame, { headingDeg = null } = {}) {
@@ -159,6 +187,7 @@ export function createMapillaryRenderer({ token, config, onError = () => {} }) {
       host = null;
       shownRef = null;
       pendingRef = null;
+      motionSpeed = 1;
     },
   };
 }

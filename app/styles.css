@@ -3124,6 +3124,13 @@ input[type="color"] {
   opacity: 1;
 }
 
+/* While the photo layer is fully opaque, the 3D map underneath is taken out
+   of layout so it stops rendering (street_imagery.pause_map_when_covered);
+   the coordinator removes the class before fading the layer out. */
+.map-viewport.street-imagery-covering #map {
+  display: none;
+}
+
 /* The element MapillaryJS owns (it forces position: relative on it), sized
    by its parent layer rather than by inset. */
 .street-imagery-layer > .street-imagery-viewer {

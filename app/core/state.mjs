@@ -213,6 +213,11 @@ export const state = {
     scan: { done: 0, total: 0 },
     coverage: null,
     loopTimer: null,
+    // Viewer transition in progress (movestart/moveend) and its start time;
+    // coverTimer delays hiding the 3D map until the layer's fade-in is done.
+    inMotion: false,
+    motionStartedMs: 0,
+    coverTimer: null,
   },
   cameraDebugEnabled: DEFAULT_CAMERA_DEBUG_ENABLED,
   cameraDebugCollapsed: false,

@@ -777,7 +777,16 @@ in place).
   of the way to it and after `min_dwell_ms`. The renderer's
   `setApproach(fraction)` (zoom into the current photo toward
   `approach_zoom_max`) exists but defaults to off: tested, it read as a
-  step back at every cut, so the viewer's own transition carries the motion. It runs on its **own** `refresh_ms` setTimeout loop (same
+  step back at every cut, so the viewer's own transition carries the motion —
+  stretched to fill the interval: each tick `motionCoefficient` divides
+  `transition_base_seconds` by the time to the next cut (`nextSwitchMeters`
+  minus where the frame came up, at the rider's speed) and the renderer's
+  `setMotionSpeed` applies it through MapillaryJS's internal state-service
+  `setSpeed` (no public API; guarded, version pinned), so the viewer is in
+  motion the whole time instead of animating briefly and holding. While the
+  layer is fully opaque the viewport carries `.street-imagery-covering`,
+  which takes `#map` out of layout (`pause_map_when_covered`) so the covered
+  3D map stops rendering/streaming; it is restored before the fade-out. It runs on its **own** `refresh_ms` setTimeout loop (same
   reason as camera-debug: a manual drag at rest leaves first person without
   running `updateRideUi`) and detects route swaps by identity
   (`state.route !== streetImagery.indexRoute`), so route-load has no hook. The

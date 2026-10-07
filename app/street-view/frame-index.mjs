@@ -264,6 +264,21 @@ export function frameForProgress(index, progressMeters, current, {
   return progressMeters >= switchAt && dwelled ? next : currentFrame;
 }
 
+// Route distance at which frameForProgress will advance past `frame` (the
+// hysteresis point toward the first frame at least minAdvanceMeters ahead),
+// or null when nothing follows. Lets the coordinator pace the viewer's
+// transition so it lasts exactly until the next cut.
+export function nextSwitchMeters(index, frame, { minAdvanceMeters = 0, switchFraction }) {
+  const frames = index.frames;
+  const nextIndex = Math.max(
+    upperBound(frames, frame.distanceMeters),
+    lowerBound(frames, frame.distanceMeters + minAdvanceMeters),
+  );
+  const next = frames[nextIndex];
+  if (!next) return null;
+  return frame.distanceMeters + switchFraction * (next.distanceMeters - frame.distanceMeters);
+}
+
 // How far the rider has progressed from `frame` toward the next frame along
 // the route, 0..1 (1 when there is no next frame or the rider is past it).
 // Drives the "approach zoom": the renderer zooms into the current photo as
