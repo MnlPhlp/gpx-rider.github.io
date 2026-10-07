@@ -4,6 +4,7 @@
 // The pure fit/orbit/flight math lives in camera.mjs, flyover.mjs and
 // flyby.mjs; this module owns the app-side state machine around it.
 
+import { nowMs } from "../core/clock.mjs";
 import {
   cameraEyePosition,
   cameraFromEyeAndCenter,
@@ -277,7 +278,7 @@ export function startOverviewAnimation({ instant = false, atS = null } = {}) {
   }
   // The animation is the sole camera driver from here.
   cancelCameraTransition();
-  const now = performance.now();
+  const now = nowMs();
   const enteringFromArc = atS !== null;
   // Ease in from where the camera currently is, unless we're snapping (a fresh
   // load can be on the far side of the world — no sensible lerp) or an arc just
@@ -351,7 +352,7 @@ function ensureOverviewAnimationLoop() {
       state.overviewAnimLoopActive = false;
       return;
     }
-    stepOverviewAnimation(performance.now());
+    stepOverviewAnimation(nowMs());
     // Keep the ground dot's apparent size steady while the camera moves.
     if (state.riderDot) updateRiderDot(interpolateRoutePoint(state.route, state.progressMeters));
     requestAnimationFrame(step);

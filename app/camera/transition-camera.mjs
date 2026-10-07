@@ -16,6 +16,7 @@
 // pre-existing chase / eased-entry behavior — the arc is an upgrade, never a
 // requirement.
 
+import { nowMs } from "../core/clock.mjs";
 import { createCameraTransition } from "./transition-arc.mjs";
 import { cameraFromEyeAndCenter } from "./camera.mjs";
 import {
@@ -68,7 +69,7 @@ export function startCameraTransitionToFollow(startState = null) {
       center: { ...pose.lookAt },
       eyeVelocity: enuToChaseFrame(velocity.eye),
       centerVelocity: enuToChaseFrame(velocity.lookAt),
-      lastStepMs: performance.now(),
+      lastStepMs: nowMs(),
     };
     if (!state.movementLoopActive) ensureCameraFlightLoop();
   });
@@ -145,7 +146,7 @@ function beginTransition(arc, onComplete) {
   // and drop the parked chase state (it is re-seeded at the dock).
   clearOverviewAnimation();
   state.cameraFlight = null;
-  state.cameraTransition = { arc, startMs: performance.now(), onComplete };
+  state.cameraTransition = { arc, startMs: nowMs(), onComplete };
   ensureCameraTransitionLoop();
 }
 
@@ -162,7 +163,7 @@ function ensureCameraTransitionLoop() {
       state.cameraTransitionLoopActive = false;
       return;
     }
-    const pose = transition.arc.poseAt((performance.now() - transition.startMs) / 1000);
+    const pose = transition.arc.poseAt((nowMs() - transition.startMs) / 1000);
     applyTransitionPose(pose);
     // Keep the ground dot's apparent size steady while the camera flies.
     if (state.riderDot && state.route.length) {
@@ -247,7 +248,7 @@ function currentCameraVelocity() {
   const anim = state.overviewAnim;
   if (anim?.mode === "orbit" && state.overviewCamera) {
     const spin = orbitSpin();
-    const camera = orbitCamera(state.overviewCamera, (performance.now() - anim.startMs) / 1000, spin);
+    const camera = orbitCamera(state.overviewCamera, (nowMs() - anim.startMs) / 1000, spin);
     return { eye: camera ? orbitEyeVelocity(camera, spin) : [0, 0, 0], lookAt: [0, 0, 0] };
   }
   if (anim?.flyby) return flybyVelocity(anim);
@@ -312,9 +313,10 @@ function enuToChaseFrame([east, north, up]) {
 }
 
 // The same movement-source rule as the movement loop: trainer speed while
-// pedaling wins, else the simulation slider while simulating, else parked.
+// pedaling wins, else the recording's speed while a replay plays (it fills
+// the same trainer speed field), else the simulation slider, else parked.
 function riderSpeedMps() {
-  if (state.pedaling && Number.isFinite(state.trainerSpeedKph)) {
+  if ((state.pedaling || state.replay.playing) && Number.isFinite(state.trainerSpeedKph)) {
     return Math.max(0, state.trainerSpeedKph) / 3.6;
   }
   if (state.simulating) return Math.max(0, Number(els.speedInput?.value) || 0) / 3.6;

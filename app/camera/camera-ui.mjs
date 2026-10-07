@@ -5,6 +5,7 @@
 // overview-camera.mjs; this module only reads/writes settings state and
 // delegates to them.
 
+import { nowMs } from "../core/clock.mjs";
 import { normalizeHeading } from "./camera.mjs";
 import { updateOverviewDebugLine } from "./camera-debug.mjs";
 import { focusedRouteRange } from "../route/climbs-ui.mjs";
@@ -97,7 +98,7 @@ export function updateClimbOrbitSpeedFromControl() {
     state.overviewRoute !== state.route &&
     previous > 0
   ) {
-    const now = performance.now();
+    const now = nowMs();
     anim.startMs = now - (now - anim.startMs) * (state.climbOrbitSecondsPerRev / previous);
   }
   saveSettings();
@@ -207,8 +208,14 @@ export function selectClimbOverviewModeFromMenu(event) {
 
 export function selectCameraViewPresetFromMenu(event) {
   event.stopPropagation();
-  const preset = event.currentTarget.dataset.cameraViewPreset;
   closeCameraViewMenu();
+  applyCameraViewPreset(event.currentTarget.dataset.cameraViewPreset);
+}
+
+// "firstPerson" → the eye-level preset; anything else → the default angled
+// follow camera. Shared by the map menu, the recording toolbar and the
+// headless render hook.
+export function applyCameraViewPreset(preset) {
   if (preset === "firstPerson") {
     applyFirstPersonCameraView();
     return;

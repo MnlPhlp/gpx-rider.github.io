@@ -23,8 +23,8 @@
             <span id="gpxChipName" class="gpx-chip-name">--</span>
           </div>
           <label class="file-picker btn btn-ghost">
-            <input id="gpxFile" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml">
-            <span>Open GPX file…</span>
+            <input id="gpxFile" type="file" accept=".gpx,.fit,application/gpx+xml,application/xml,text/xml,application/vnd.ant.fit,application/octet-stream">
+            <span>Open GPX or FIT…</span>
           </label>
           <button id="browseGalleryBtn" type="button" class="btn btn-blue" hidden>
             Browse gallery
@@ -478,6 +478,50 @@
             </div>
           </div>
 
+          <div class="panel-card replay-card">
+            <div class="panel-card-head">
+              <div>
+                <span class="panel-card-title">Ride replay</span>
+                <p class="panel-card-hint">Replay a ride you really rode — a FIT file or a GPX with timestamps — at its recorded speed, then export it as a video</p>
+              </div>
+              <button id="replayPreviewBtn" type="button" class="btn btn-blue btn-sm" title="Open the recording view to preview and record the replay" disabled>Preview &amp; record</button>
+            </div>
+            <div class="replay-intake">
+              <label class="file-picker btn btn-ghost btn-sm replay-file-btn">
+                <input id="replayFile" type="file" accept=".gpx,.fit,application/gpx+xml,application/xml,text/xml,application/vnd.ant.fit,application/octet-stream">
+                <span>Open recorded ride…</span>
+              </label>
+              <div class="replay-strava">
+                <input id="replayStravaInput" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://www.strava.com/activities/…" aria-label="Strava activity link">
+                <button id="replayStravaFitBtn" type="button" class="btn btn-outline-blue btn-sm" data-strava-export="original" title="Download the original FIT file from Strava (opens Strava in a new tab)" disabled>Get FIT</button>
+                <button id="replayStravaGpxBtn" type="button" class="btn btn-outline-blue btn-sm" data-strava-export="gpx" title="Download Strava's GPX export (opens Strava in a new tab)" disabled>Get GPX</button>
+              </div>
+              <p id="replayStravaHint" class="replay-hint">Paste a Strava activity link to fetch its file from your Strava account.</p>
+            </div>
+            <p id="replayEmpty" class="replay-hint replay-empty">No recorded ride loaded yet. Opening a timestamped GPX or a FIT anywhere in the app loads it here.</p>
+            <div id="replayLoaded" hidden>
+              <div class="replay-source">
+                <span class="replay-source-tag">REC</span>
+                <span id="replaySourceName" class="replay-source-name">--</span>
+              </div>
+              <dl class="rec-stats">
+                <div><dt>duration</dt><dd id="replayDurationStat">--</dd></div>
+                <div><dt>distance</dt><dd id="replayDistanceStat">--</dd></div>
+                <div><dt>avg speed</dt><dd id="replayAvgSpeedStat">--</dd></div>
+                <div><dt>channels</dt><dd id="replayChannelsStat">--</dd></div>
+              </dl>
+              <div class="replay-transport">
+                <button type="button" class="replay-play-btn" data-replay-play aria-pressed="false" title="Play the recorded ride" aria-label="Play or pause the replay" disabled>
+                  <svg class="icon-replay-play" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M2 1.5v9l8-4.5z"></path></svg>
+                  <svg class="icon-replay-pause" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="0.8"></rect><rect x="7" y="1.5" width="3" height="9" rx="0.8"></rect></svg>
+                </button>
+                <input type="range" class="replay-scrub" data-replay-scrub min="0" max="1" step="1" value="0" aria-label="Replay position" disabled>
+                <span class="replay-time" data-replay-time>--</span>
+                <select class="replay-speed" data-replay-speed aria-label="Replay speed" disabled></select>
+              </div>
+            </div>
+          </div>
+
           <div class="panel-card gallery-export-card">
             <div class="panel-card-head">
               <div>
@@ -520,42 +564,69 @@
                 <button id="demoModeBtn" type="button" class="btn btn-outline-blue" aria-pressed="false" disabled>Demo mode</button>
               </div>
             </div>
-            <div class="theater-hud-toggles">
-              <span class="theater-hud-toggles-label">Hide in recording view</span>
-              <label class="theater-hud-toggle">
-                <input id="theaterHideClockInput" type="checkbox">
-                <span>Top-left chip</span>
-              </label>
-              <label class="theater-hud-toggle">
-                <input id="theaterHideMetersInput" type="checkbox">
-                <span>Meters</span>
-              </label>
-              <label class="theater-hud-toggle">
-                <input id="theaterHideDockInput" type="checkbox">
-                <span>Bottom panel</span>
-              </label>
-              <label class="theater-hud-toggle">
-                <input id="theaterHideClimbBannerInput" type="checkbox">
-                <span>Climb banner</span>
-              </label>
-              <label class="theater-hud-toggle">
-                <input id="theaterHideDemoChipInput" type="checkbox">
-                <span>Demo mode chip</span>
-              </label>
-              <label class="theater-hud-toggle">
-                <input id="theaterHideControlsInput" type="checkbox">
-                <span>Controls</span>
-              </label>
-              <label class="theater-hud-toggle">
-                <input id="theaterHideMinimapInput" type="checkbox">
-                <span>Minimap</span>
-              </label>
-            </div>
+            <p class="panel-card-hint">The recording view's toolbar chooses which HUD overlays stay in a recording.</p>
           </div>
           <p id="terrainAttribution" class="panel-credits" hidden></p>
         </aside>
       </div>
     </main>
+
+    <!-- Recording-view toolbar (theater mode): what to hide in the recording,
+         plus — when a recorded ride is loaded — the replay transport and the
+         video Record button. Sits under the pinned map viewport, outside it,
+         so it is never part of the capture. -->
+    <div id="theaterToolbar" class="theater-toolbar" hidden>
+      <div class="theater-toolbar-row">
+      <div class="theater-hud-toggles">
+        <span class="theater-hud-toggles-label">Hide in recording view</span>
+        <label class="theater-hud-toggle">
+          <input id="theaterHideClockInput" type="checkbox">
+          <span>Top-left chip</span>
+        </label>
+        <label class="theater-hud-toggle">
+          <input id="theaterHideMetersInput" type="checkbox">
+          <span>Meters</span>
+        </label>
+        <label class="theater-hud-toggle">
+          <input id="theaterHideDockInput" type="checkbox">
+          <span>Bottom panel</span>
+        </label>
+        <label class="theater-hud-toggle">
+          <input id="theaterHideClimbBannerInput" type="checkbox">
+          <span>Climb banner</span>
+        </label>
+        <label class="theater-hud-toggle">
+          <input id="theaterHideDemoChipInput" type="checkbox">
+          <span>Demo mode chip</span>
+        </label>
+        <label class="theater-hud-toggle">
+          <input id="theaterHideControlsInput" type="checkbox">
+          <span>Controls</span>
+        </label>
+        <label class="theater-hud-toggle">
+          <input id="theaterHideMinimapInput" type="checkbox">
+          <span>Minimap</span>
+        </label>
+      </div>
+      <button id="theaterExitBtn" type="button" class="btn btn-ghost btn-sm" title="Exit the recording view">Exit</button>
+      </div>
+      <div id="theaterToolbarReplay" class="theater-toolbar-row theater-toolbar-replay" hidden>
+        <button type="button" class="replay-play-btn" data-replay-play aria-pressed="false" title="Play the recorded ride" aria-label="Play or pause the replay" disabled>
+          <svg class="icon-replay-play" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M2 1.5v9l8-4.5z"></path></svg>
+          <svg class="icon-replay-pause" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect x="2" y="1.5" width="3" height="9" rx="0.8"></rect><rect x="7" y="1.5" width="3" height="9" rx="0.8"></rect></svg>
+        </button>
+        <input type="range" class="replay-scrub" data-replay-scrub min="0" max="1" step="1" value="0" aria-label="Replay position" disabled>
+        <span class="replay-time" data-replay-time>--</span>
+        <select class="replay-speed" data-replay-speed aria-label="Replay speed" disabled></select>
+        <select id="replayCameraSelect" class="replay-speed" aria-label="Replay camera" title="Camera for the preview and the video">
+          <option value="follow">Follow camera</option>
+          <option value="first-person">First person</option>
+        </select>
+        <button id="replayRecordBtn" type="button" class="btn btn-accent btn-sm replay-record-btn" title="Render the replay to an MP4 right here" aria-pressed="false" disabled>Record video</button>
+        <button id="replayCopyCommandBtn" type="button" class="btn btn-ghost btn-sm" title="Copy the command for the optional headless batch renderer (scripts/render_replay_video.py) with these settings" disabled>Copy render command</button>
+        <span id="replayRecordStatus" class="recording-indicator" hidden><span class="recording-pulse"></span>REC</span>
+      </div>
+    </div>
 
     <dialog id="settingsDialog" class="settings-dialog" aria-labelledby="settingsPanelTitle">
       <div class="settings-rail">

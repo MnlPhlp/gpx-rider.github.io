@@ -306,5 +306,15 @@ export const DEMO_RIDE = req("demo_ride");
 export const RIDE_SAMPLE_INTERVAL_MS = req("ride_recording", "sample_interval_ms");
 export const RIDE_PERSIST_INTERVAL_MS = req("ride_recording", "persist_interval_ms");
 
+// Ride replay & video export
+export const RIDE_REPLAY_MAX_GAP_SECONDS = req("ride_replay", "max_gap_seconds");
+export const RIDE_REPLAY_PAUSE_MIN_SPEED_KPH = req("ride_replay", "pause_min_speed_kph");
+export const RIDE_REPLAY_SPEED_WINDOW_SECONDS = req("ride_replay", "speed_window_seconds");
+export const RIDE_REPLAY_SPEED_OPTIONS = req("ride_replay", "speed_options");
+export const RIDE_REPLAY_DEFAULT_SPEED = req("ride_replay", "default_speed");
+export const RIDE_REPLAY_VIDEO = req("ride_replay", "video");
+export const RIDE_REPLAY_RENDER = req("ride_replay", "render");
+export const STRAVA_ACTIVITY_EXPORT_URL = req("ride_replay", "strava_export_url");
+
 // Landing page hero replay
 export const LANDING_HERO = req("landing_hero");

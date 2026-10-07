@@ -29,6 +29,7 @@ import {
   DEFAULT_RESTING_HEART_RATE_BPM,
   DEFAULT_RIDER_VISIBILITY_ENABLED,
   DEFAULT_ROUTE_GRADE_COLORS_ENABLED,
+  RIDE_REPLAY_DEFAULT_SPEED,
   DEFAULT_SCREENSHOT_ASPECT,
   DEFAULT_SCREENSHOT_WIDTH,
   DEFAULT_SHOW_MINIMAP,
@@ -229,6 +230,30 @@ export const state = {
     loopTimer: null,
     // coverTimer delays hiding the 3D map until the layer's fade-in is done.
     coverTimer: null,
+  },
+  // Ride replay (replay/): the recorded ride behind the loaded route, if the
+  // route came from a timestamped GPX or a FIT file. `timeline` is the
+  // ride-timeline.mjs model (null for a plain planned route), `elapsedSeconds`
+  // the playhead in ride time, `playing` makes the replay the movement source
+  // (see movement.mjs#isMoving), `speed` the playback multiplier. The video
+  // export keeps its capture controller in `recorder` while a recording runs;
+  // `outroTimer` is the finish-orbit tail before the file is saved.
+  replay: {
+    timeline: null,
+    sourceName: null,
+    stravaActivityId: null,
+    pendingStravaActivityId: null,
+    playing: false,
+    elapsedSeconds: 0,
+    speed: RIDE_REPLAY_DEFAULT_SPEED,
+    lastTelemetryIndex: -1,
+    recorder: null,
+    recording: false,
+    // true while the export steps the app clock frame by frame (WebCodecs
+    // path), false for the real-time MediaRecorder fallback.
+    stepped: false,
+    exportStarting: false,
+    outroTimer: null,
   },
   cameraDebugEnabled: DEFAULT_CAMERA_DEBUG_ENABLED,
   cameraDebugCollapsed: false,
@@ -499,6 +524,32 @@ export const els = {
   contributeCheckCoverageBtn: document.querySelector("#contributeCheckCoverageBtn"),
   contributeCoverage: document.querySelector("#contributeCoverage"),
   contributeEnableBtn: document.querySelector("#contributeEnableBtn"),
+  // Ride replay card + the theater-mode toolbar. Transport controls exist in
+  // both places (card and toolbar) and are synced as groups.
+  replayFile: document.querySelector("#replayFile"),
+  replayStravaInput: document.querySelector("#replayStravaInput"),
+  replayStravaFitBtn: document.querySelector("#replayStravaFitBtn"),
+  replayStravaGpxBtn: document.querySelector("#replayStravaGpxBtn"),
+  replayStravaHint: document.querySelector("#replayStravaHint"),
+  replayEmpty: document.querySelector("#replayEmpty"),
+  replayLoaded: document.querySelector("#replayLoaded"),
+  replaySourceName: document.querySelector("#replaySourceName"),
+  replayDurationStat: document.querySelector("#replayDurationStat"),
+  replayDistanceStat: document.querySelector("#replayDistanceStat"),
+  replayAvgSpeedStat: document.querySelector("#replayAvgSpeedStat"),
+  replayChannelsStat: document.querySelector("#replayChannelsStat"),
+  replayPreviewBtn: document.querySelector("#replayPreviewBtn"),
+  replayPlayButtons: Array.from(document.querySelectorAll("[data-replay-play]")),
+  replayScrubbers: Array.from(document.querySelectorAll("[data-replay-scrub]")),
+  replayTimeOutputs: Array.from(document.querySelectorAll("[data-replay-time]")),
+  replaySpeedSelects: Array.from(document.querySelectorAll("[data-replay-speed]")),
+  theaterToolbar: document.querySelector("#theaterToolbar"),
+  theaterToolbarReplay: document.querySelector("#theaterToolbarReplay"),
+  theaterExitBtn: document.querySelector("#theaterExitBtn"),
+  replayRecordBtn: document.querySelector("#replayRecordBtn"),
+  replayRecordStatus: document.querySelector("#replayRecordStatus"),
+  replayCameraSelect: document.querySelector("#replayCameraSelect"),
+  replayCopyCommandBtn: document.querySelector("#replayCopyCommandBtn"),
 };
 
 // One-line status readout under the progress bar; the app-wide way to tell

@@ -1,9 +1,16 @@
 # AGENTS.md — instructions for AI agents working on GPX Rider
 
 GPX Rider is a **no-build, static web app**: plain HTML/CSS/JS ES modules,
-no bundler, no framework, no `node_modules`. Keep it that way — do not
-introduce a build step, TypeScript, npm dependencies, or a framework unless
-the user explicitly asks for one.
+no bundler, no framework, no `node_modules`. Keep the no-build setup — do
+not introduce a build step, TypeScript, or a framework unless the user
+explicitly asks for one. Third-party **libraries are allowed** in this fork
+(the owner lifted the earlier "no dependencies" rule on 2026-10-07, with
+three.js explicitly in mind for a possible own 3D renderer): add them as
+vendored ES module builds under `app/vendor/` (or an import map pointing at
+them), with the license noted in `THIRD_PARTY_NOTICES.md`, so the site stays
+plain static files that deploy as-is. Developer tooling outside `app/` (the
+headless video renderer's Playwright, ffmpeg) is fine as an optional,
+documented requirement of that script only.
 
 Use **American English** throughout the repository, including UI copy,
 documentation, code comments, test names, and generated metadata. Preserve
@@ -41,8 +48,8 @@ pages, `styles.css`, `gallery.json`, and `assets/` stay at the app root.
 
 | Folder | Feature | Modules |
 |---|---|---|
-| `app/core/` | Shared foundation | `state.mjs` (the single mutable `state` object + `els` DOM map + `updateProgressLabel`; bottom of the feature import graph — must never import a feature module), `tuning.mjs` (loads and re-exports **all tunable behavior parameters** from `tuning.yaml` under their historical names — new knobs go in the yaml, not this file), `tuning.yaml` (the actual values + one documented comment each, shared with `scripts/tuning_config.py`), `yaml.mjs` (hand-rolled parser for the small YAML subset `tuning.yaml` uses; tested), `geo.mjs` (pure geodesy: haversine, bearing, destinationPoint, clamp, lerp; tested), `units.mjs` (km/mi + kcal/kJ display formatting; internal state is always metric; tested) |
-| `app/map/` | Map rendering | `map-init.mjs` (Maps API key resolution/saving, Google Maps JS loader, 3D map + minimap creation), `route-render.mjs` (elevated 3D route lines, rider dot mesh + fallback ring, rider beacon, minimap route/marker — see the rider-dot notes below), `route-style.mjs` (pure route segment styling), `screenshot.mjs` (viewport JPG via tab capture — the 3D canvas sits in a closed shadow root and cannot be read directly), `terrain-tiles-math.mjs` (pure Web Mercator tile coords + Terrarium elevation decode; tested), `terrain-tiles.mjs` (fetches/decodes/LRU-caches online Mapzen Terrarium elevation tiles — see "Online terrain elevation" below) |
+| `app/core/` | Shared foundation | `state.mjs` (the single mutable `state` object + `els` DOM map + `updateProgressLabel`; bottom of the feature import graph — must never import a feature module), `clock.mjs` (`nowMs()`, the app's monotonic clock every time-based motion reads instead of `performance.now()`; freezable/steppable for the frame-stepped video export — pure, no imports), `tuning.mjs` (loads and re-exports **all tunable behavior parameters** from `tuning.yaml` under their historical names — new knobs go in the yaml, not this file), `tuning.yaml` (the actual values + one documented comment each, shared with `scripts/tuning_config.py`), `yaml.mjs` (hand-rolled parser for the small YAML subset `tuning.yaml` uses; tested), `geo.mjs` (pure geodesy: haversine, bearing, destinationPoint, clamp, lerp; tested), `units.mjs` (km/mi + kcal/kJ display formatting; internal state is always metric; tested) |
+| `app/map/` | Map rendering | `map-init.mjs` (Maps API key resolution/saving, Google Maps JS loader, 3D map + minimap creation), `route-render.mjs` (elevated 3D route lines, rider dot mesh + fallback ring, rider beacon, minimap route/marker — see the rider-dot notes below), `route-style.mjs` (pure route segment styling), `screenshot.mjs` (viewport JPG via tab capture — the 3D canvas sits in a closed shadow root and cannot be read directly), `video-capture.mjs` (`openTabCapture`: the shared tab-capture → cropped canvas plumbing, plus the real-time MediaRecorder fallback recording; pure MIME/extension helpers tested), `stepped-video.mjs` (frame-stepped capture: takes the tab-capture frame carrying the current frame tag, WebCodecs H.264 encode with exact timestamps, MP4 mux via `app/vendor/mp4-muxer`), `frame-tag.mjs` (pure: a step index ⇄ a 4-level-per-channel color, the swatch the stepped export reads back to know which captured frame shows which step; tested), `terrain-tiles-math.mjs` (pure Web Mercator tile coords + Terrarium elevation decode; tested), `terrain-tiles.mjs` (fetches/decodes/LRU-caches online Mapzen Terrarium elevation tiles — see "Online terrain elevation" below) |
 | `app/camera/` | Camera behavior | `camera.mjs` (pure follow-camera math; tested), `flyover.mjs` (pure orbit math; tested), `flyby.mjs` (pure ellipse/figure-eight flight math; tested), `follow-camera.mjs` (follow/first-person targets, chase flight, terrain avoidance, manual-drag capture), `overview-camera.mjs` (overview state machine: static/satellite framing, animated orbit/fly-by/fly-over, finish orbit, return-to-rider), `camera-ui.mjs` (map action-bar camera controls + menus, camera settings sliders, first-person preset, reset button state), `camera-debug.mjs` (debug overlay readout + red travel-path debug line), `transition-arc.mjs` (pure overview ↔ chase transition-arc math: Hermite/Bezier eye + look-at flight, duration solver against scale-aware physical limits; tested), `transition-camera.mjs` (app-side transition driver: captures pose + driver velocity, predicts the dock state, flies the arc into whichever target is in `arc_into_modes` — the follow camera (overview-off, movement-start, profile-seek teleport) or the fly-by/fly-over pattern; static/orbit/satellite overviews are never arced into) |
 | `app/route/` | Route processing | `route.mjs` (GPX parsing, enrichment, interpolation, grade; tested), `climb-signal.mjs` (pure resample/smooth/rolling-grade elevation-signal helpers behind climb detection; tested), `climbs.mjs` (sustained-climb detection — the fatigue-pressure state machine built on `climb-signal.mjs`; tested), `difficulty.mjs` (classification from distance + gain; tested), `route-load.mjs` (GPX file/URL intake, `applyGpxText` route-swap sequence, once-per-load route overview), `climbs-ui.mjs` (climb/segment focus, live climb status, the HUD climb/segment banner), `profile.mjs` (elevation profile canvas drawing + hit-testing), `profile-ui.mjs` (profile rendering + hover/seek/drag-select wiring) |
 | `app/ride/` | Ride execution & telemetry | `movement.mjs` (the movement loop `tick`, simulation toggle, pedaling hysteresis, reset, seek), `eta.mjs` (flat-equivalent pace ETA model; tested), `ride-ui.mjs` (`updateRideUi`, the per-tick UI driver), `telemetry-ui.mjs` (trainer/HR callbacks, HR source resolution, calories/timer, telemetry readouts), `training-zones.mjs` (HR/power zones, fullscreen zone meters, zone summaries), `recorder.mjs` (ride sample bucket), `recording-ui.mjs` (FIT card, download, clear), `fit.mjs` (FIT encoder — must stay sport=cycling, sub_sport=virtual_activity; tested) |
@@ -53,6 +60,8 @@ pages, `styles.css`, `gallery.json`, and `assets/` stay at the app root.
 | `app/gallery-ui/` | Gallery | `gallery.mjs` (fullscreen ride-gallery overlay; cards from `app/gallery.json`, per-card on-demand 3D preview via each route's `metadata.json#previewCamera`), `gallery-export.mjs` (Export to gallery card: metadata.json snippet with the live camera, clipboard copy) |
 | `app/landing/` | Landing page | `landing.mjs` (public landing page behavior: hero replay over a live 3D map with a faked HUD, then summit orbit, loops; knobs in `LANDING_HERO`, `core/tuning.mjs`), `landing-route.mjs` (static route data the hero replays — marketing data, not app runtime) |
 | `app/demo/` | Demo mode | `demo.mjs` (pure synthetic trainer/HR ride model; tested), `demo-mode.mjs` (demo mode UI: drives the ride from the model, demo chip sync) |
+| `app/replay/` | Ride replay & video export | `fit-decode.mjs` (pure minimal FIT activity decoder — record messages, compressed timestamps, developer fields skipped; tested against `ride/fit.mjs`'s output), `ride-timeline.mjs` (pure model of a recorded ride: ride time with stops squeezed out, distance/telemetry/calories at any elapsed, inverse lookup by distance, profile history, compact (de)serialization; tested), `strava-link.mjs` (pure Strava activity URL parsing + export URL templates; tested), `replay-load.mjs` (recorded-ride intake from FIT or timestamped GPX, replay persistence `gpx-rider:replay`, the Strava link row, the Ride replay card), `replay-mode.mjs` (playback: the replay as a movement source via `advanceReplay`, telemetry into the trainer/strap state fields, transport controls in card + toolbar), `render-hook.mjs` (deterministic render steps: configure the recording view, `stepAppClock` one frame, `waitForMapSteady`; publishes them on `window.gpxRiderRender` under `?render=1` for the headless script), `render-command.mjs` (pure: the headless renderer's command line from the preview's choices; tested), `video-export.mjs` (the recording view's export: camera choice, "Copy render command", and "Record video" — the frame-stepped in-browser export, with the real-time MediaRecorder fallback) |
+| `app/vendor/` | Vendored libraries | `mp4-muxer/` (mp4-muxer 5.2.1 ES module build, MIT — the MP4 container writer for the stepped video export; license in `THIRD_PARTY_NOTICES.md`) |
 | `app/street-view/` | Street imagery | `frame-index.mjs` (pure route-distance index of imagery frames: spatial-grid projection onto the route, heading-usability filter, `frameForProgress` selection with midpoint hysteresis + dwell, coverage runs; tested), `scan-boxes.mjs` (pure: global-grid search cells along a route, lookahead-first order, quadrant subdivision, Mapillary entity → candidate; tested), `mapillary-source.mjs` (Graph API scan of a route's cells → candidates; fetch pool, subdivide-on-cap, abort, per-cell session cache, typed token error; tested with a fake fetch), `playback-plan.mjs` (pure: the chain of frames a route plays, link classification parallax/cut/gap from image metadata, route position → link + fraction, prefetch window, route plan key; tested), `imagery-store.mjs` (per-image metadata in batches, mesh/photo bytes, IndexedDB cache of plans + bytes with LRU eviction, expired-URL retry, bisect on a refused batch; tested with a fake fetch + in-memory adapter), `sfm-math.mjs` (pure: column-major mat4/vec3, Rodrigues, lookAt/perspective, Catmull-Rom, WGS84⇄ECEF⇄ENU; tested), `sfm-camera.mjs` (pure: one image's camera model — pose, perspective/fisheye/spherical projection with distortion and radial peak, EXIF orientation, basic⇄SfM coordinates, vertical FOV fit, synthesized pose, parallax pair test; tested), `sfm-mesh.mjs` (pure: mesh protobuf decode, vertex clamping, flat plane/sphere fallback, mesh-inside-photo self-check; tested), `sfm-path.mjs` (pure: camera between two poses, linear or Catmull-Rom; tested), `sfm-shaders.mjs` (the projective-texturing GLSL), `sfm-gl.mjs` (WebGL2 wrapper: programs, geometry/texture uploads, draw passes, snapshot cross-fade), `sfm-nodes.mjs` (GPU node cache: photo + mesh → transform/geometry/texture per plan entry, dedupe/abort, LRU eviction, the mesh self-check), `sfm-renderer.mjs` (the renderer: position-driven camera + three-pass blend, cuts, readiness/hold rules, prefetch, attribution), `street-view-plan.mjs` (route lifecycle: cached plan or scan, interim/final plan builds, coverage summary, the asset store), `street-view-ui.mjs` (coordinator: layer + fade, HUD chip, route identity, own refresh loop, renderer mount, `state.streetImagery`), `street-view-settings.mjs` (settings tab sync/apply + coverage/token/cache readouts), `contribute-ui.mjs` (the "Contribute your own imagery" guide dialog). Portions of the `sfm-*` modules are ported from MapillaryJS (MIT) — see `THIRD_PARTY_NOTICES.md`. `route/gpx-export.mjs` (pure GPX serializer; tested) backs its GPX download. |
 
 ## Code organization system — how to keep this codebase clean
@@ -74,10 +83,12 @@ do NOT change the layer rules — a pure module stays pure wherever it lives:
 2. **Pure logic modules** (`core/geo`, `camera/camera`, `route/route`,
    `ride/eta`, `route/difficulty`, `route/climbs`, `core/units`, `ride/fit`,
    `camera/flyby`, `camera/flyover`, `demo/demo`, `map/route-style`,
-   `route/profile`, `trainer/fec`) — no DOM, no app state, no imports from
+   `route/profile`, `trainer/fec`, `replay/fit-decode`, `replay/ride-timeline`,
+   `replay/strava-link`) — no DOM, no app state, no imports from
    higher layers. Every one of these is unit-testable; most are tested.
 3. **Hardware/IO modules** (`trainer/trainer`, `trainer/trainer-fec`,
-   `trainer/heartrate`, `ride/recorder`, `storage/storage`, `map/screenshot`) —
+   `trainer/heartrate`, `ride/recorder`, `storage/storage`, `map/screenshot`,
+   `map/video-capture`) —
    own their internal state, talk upward only through `init*()` callbacks or
    return values.
 4. **`core/state.mjs`** — the shared mutable `state` object + the `els` DOM
@@ -177,12 +188,89 @@ in place).
 
 ## Key domain concepts
 
-- **Two movement sources.** The rider advances along the route from either
-  *pedaling* (trainer-reported speed, always wins) or the *simulation*
-  (slider speed, toggled by the "Start simulation" button). Starting to
-  pedal auto-stops a running simulation; the button must never control the
-  trainer-driven movement. Pedaling detection uses hysteresis
-  (`PEDALING_START_KPH` / `PEDALING_STOP_KPH` in `tuning.mjs`).
+- **Three movement sources.** The rider advances along the route from
+  *pedaling* (trainer-reported speed, always wins), the *simulation*
+  (slider speed, toggled by the "Start simulation" button), or a playing
+  *replay* (a recorded ride's own timing — see "Ride replay" below; `tick`
+  asks `advanceReplay` where the rider was instead of integrating a speed).
+  Starting to pedal auto-stops a running simulation or replay; the button
+  must never control the trainer-driven movement. Pedaling detection uses
+  hysteresis (`PEDALING_START_KPH` / `PEDALING_STOP_KPH` in `tuning.mjs`).
+  `isMoving()` in `movement.mjs` is the one predicate covering all three.
+- **Ride replay & video export** (`app/replay/`). Opening a FIT file, or a
+  GPX whose every point carries a `<time>`, loads it as a route *and*
+  attaches a `ride-timeline.mjs` model to `state.replay.timeline`: ride time
+  (stops longer than `ride_replay.max_gap_seconds` with the rider under
+  `pause_min_speed_kph` are squeezed to the max gap), cumulative route
+  distance (the same haversine sum as `enrichRoute`, so `timelineDistanceAt`
+  lines up with the rendered route exactly — the route *is*
+  `timeline.points`), recorded speed (derived from distance over
+  `speed_window_seconds` when the file has none), power/HR/cadence held per
+  sample, and calories from power. Intake is shared: `route-load.mjs`'s
+  `loadRideFile` detects FIT by header (`fit-decode.mjs`, a minimal reader
+  tested round-trip against the app's own encoder) and `applyGpxText`
+  checks for timestamps; both end in `applyRoutePoints` + `attachReplayTimeline`
+  (`replay-load.mjs`), which persists the timeline under `gpx-rider:replay`
+  and `restoreReplay` re-attaches it after `restoreSavedRide` when it matches
+  the restored route. Playback (`replay-mode.mjs`): `startReplay` makes
+  `state.replay.playing` the movement source (`ensureMovementLoop` does its
+  usual overview→follow handoff), `advanceReplay(dt)` moves the playhead by
+  `dt × speed` and writes the recording's speed/power/cadence/HR into the
+  trainer/strap state fields — so tiles, zone meters, the clock, the profile
+  history (`profile-ui.mjs` reads `timelineHistoryUpTo`), ETA (exact: ride
+  time left) and calories all read it with small replay branches, exactly
+  like demo mode. Nothing is recorded into the FIT buffer (gated on
+  `pedaling`) and no grade is sent to a trainer while a replay plays;
+  pedaling, the simulation button, and demo mode each pause the replay and
+  take over. Seeking by distance (profile/climb click) moves the playhead via
+  `timelineElapsedAtDistance`. The **video export** (`video-export.mjs`): the
+  preview *is* theater mode — the viewport pinned at the recording size, the
+  toolbar's "hide in recording view" toggles, speed select and camera select
+  (angled follow by default, first person optional; entering the view applies
+  it) deciding what the video shows. "Record video" renders **frame-stepped
+  and pipelined**: the app clock (`core/clock.mjs` — every motion reads
+  `nowMs()`, never `performance.now()` directly; keep it that way) is frozen,
+  and the producer in `video-export.mjs#runSteppedExport` advances it by
+  `1000/frame_rate` once per *presented tab-capture frame*
+  (`recorder.onPresented`), stamping that step's **frame tag** in the next rAF
+  (where the loops have set the camera and the map renders, before paint): a
+  12 px swatch fixed in the window's top-left corner, on the backdrop outside
+  the recorded viewport, colored by `map/frame-tag.mjs`. The consumer loop in
+  `map/stepped-video.mjs` reads the swatch back from every presented capture
+  frame (`getDisplayMedia` — the screenshot's approach; the 3D canvas cannot
+  be read — through `map/video-capture.mjs#openTabCapture`, cropped to the
+  viewport and the `ride_replay.video` aspect at `output_width`) and encodes
+  the frame as the step its tag names (a step the capture dropped is filled
+  with the next frame and counted in `tagMisses`), wrapping it in a WebCodecs
+  `VideoFrame` stamped `step/fps`, H.264, muxed to MP4 by the vendored
+  mp4-muxer. Up to `pipeline_depth` steps are in flight, so render, capture
+  latency and encode overlap. Pacing on captured frames is essential: stepping
+  every rAF produced steps the capture never showed (half the frames were
+  duplicates). The ceiling is the capture rate, i.e. the display's refresh
+  rate: 60 Hz → a 30 fps video at ≤ 2× real time. Never block the export on
+  `isSteady`/`gmp-steadychange` (a moving camera is rarely steady; a 400 ms
+  wait made exports crawl at 3 fps) — `steady_timeout_ms` is 0 and only the
+  headless script's `waitForMapSteady` honors it. Without WebCodecs the
+  real-time `MediaRecorder` fallback (`startViewportRecording`) runs instead.
+  Both open on the route overview for `intro_seconds`, play from the start,
+  continue through the finish-line orbit for `outro_seconds`, then download;
+  Stop & save, the browser's "Stop sharing" bar, and leaving theater mode end
+  early and save. The viewport carries `capturing` meanwhile (our buttons out,
+  Google attribution in); the REC chip shows render progress. The same steps
+  back the optional **headless batch renderer** `scripts/render_replay_video.py`
+  (Playwright for Python + ffmpeg; `?render=1` publishes
+  `window.gpxRiderRender`; needs a Vulkan-reachable GPU since Chrome 154 has no
+  software WebGL; serves on port 5173 like `make run` because a
+  referrer-restricted Maps key rejects other ports) — "Copy render command"
+  in the toolbar builds its command line (`render-command.mjs`). **Strava
+  links** (`strava-link.mjs`): the browser
+  cannot fetch an activity's file (export endpoints need the owner's login
+  session and send no CORS headers; the API needs OAuth), so the card parses
+  the pasted URL, opens Strava's `export_original`/`export_gpx` in a new tab
+  for the logged-in rider, and remembers the activity id as the replay's source
+  (`state.replay.stravaActivityId`, persisted) — the hook for a future ghost
+  rider racing the recording. All knobs live under `ride_replay` in
+  `tuning.yaml`.
 - **The movement loop** (`tick` in `movement.mjs`) runs on requestAnimationFrame
   while the tab is visible and falls back to `setTimeout` when hidden, so
   rides keep advancing and recording in background tabs. Per-tick elapsed
@@ -828,7 +916,8 @@ Records saved by older versions in localStorage are migrated into
 IndexedDB on first load; browsers without working IndexedDB fall back to
 localStorage transparently. Keys: `gpx-rider:settings`,
 `gpx-rider:last-ride` (route + progress), `gpx-rider:ride-log` (recorded
-samples), `gpx-rider:last-trainer`, `gpx-rider:last-heart-rate`. The one
+samples), `gpx-rider:replay` (the recorded ride's timeline behind the saved
+route, if it was one), `gpx-rider:last-trainer`, `gpx-rider:last-heart-rate`. The one
 deliberate exception is `gpx-rider:maps-api-key`, which stays in
 localStorage (handled directly in `map-init.mjs`): saving it reloads the page
 immediately, and only a synchronous write is guaranteed to survive that.

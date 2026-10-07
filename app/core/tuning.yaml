@@ -1281,6 +1281,104 @@ ride_recording:
   sample_interval_ms: 1000
   persist_interval_ms: 5000
 
+# --- Ride replay & video export ---------------------------------------------
+#
+# Replaying a *recorded* ride (a GPX with <time> stamps, or a FIT file from a
+# head unit / Strava) through the normal follow camera and HUD, with the
+# rider moving at the recorded speed — and exporting that as a video. See
+# app/replay/ and app/map/video-capture.mjs.
+ride_replay:
+  # Timeline building (replay/ride-timeline.mjs). A gap between two recorded
+  # samples longer than max_gap_seconds during which the rider averaged under
+  # pause_min_speed_kph (a stop, a red light, an auto-pause) is squeezed to
+  # max_gap_seconds so the replay never idles on a parked rider; a long gap the
+  # rider rode through keeps its real duration. Files without a speed channel
+  # (most GPX exports) derive one from distance over a trailing window of
+  # speed_window_seconds — longer = smoother but laggier readout.
+  max_gap_seconds: 5
+  pause_min_speed_kph: 3
+  speed_window_seconds: 5
+
+  # Playback: the speed multipliers offered in the replay toolbar (1 = real
+  # time) and the one selected by default. A time-lapse multiplier shortens a
+  # two-hour ride into a few minutes of video.
+  speed_options: [1, 2, 4, 8, 16, 32]
+  default_speed: 4
+
+  # In-browser video export (replay/video-export.mjs). The viewport is cropped
+  # to this aspect ratio and scaled to output_width (even numbers only —
+  # encoders dislike odd dimensions); frame_rate is the video's frame rate and,
+  # for the stepped export, the size of each app-clock step. bits_per_second
+  # caps the encoder (0 = browser default); 12 Mbit/s is a clean 1080p30. The
+  # stepped export (WebCodecs, H.264 MP4) advances the app clock one video
+  # frame per *captured* frame and keeps up to pipeline_depth steps in flight
+  # between stepping and encoding (each captured frame is matched to its step
+  # by a frame tag), so render, capture latency and encode overlap. Its speed
+  # ceiling is the tab capture's frame rate, which can never exceed the
+  # display's refresh rate: a 60 Hz display yields at most 60 steps/s = a
+  # 30 fps video at 2× real time; a 120/144 Hz display up to 4–5×.
+  # capture_frame_rate is the rate requested from the capture (the browser
+  # clamps it to the display); pipeline_depth: higher = more overlap until
+  # the page's frame rate or the encoder is the limit, lower = less memory
+  # and a shorter drain at the end. steady_timeout_ms is kept for
+  # the headless batch renderer only (how long it waits per step for the map's
+  # steady signal); 0 never waits — a camera moving every frame is rarely
+  # "steady", and tiles stream in progressively just as during live playback.
+  # mime_preferences is for the real-time MediaRecorder fallback
+  # only, tried in order. The video opens on a still of the route overview for
+  # intro_seconds before the replay starts (the camera then flies down to the
+  # rider); after the rider finishes, the finish-line orbit keeps going for
+  # outro_seconds before the file is saved.
+  video:
+    output_width: 1920
+    aspect: "16:9"
+    frame_rate: 30
+    bits_per_second: 12000000
+    capture_frame_rate: 120
+    pipeline_depth: 6
+    steady_timeout_ms: 0
+    intro_seconds: 2
+    outro_seconds: 6
+    mime_preferences:
+      - "video/mp4;codecs=avc1"
+      - "video/mp4"
+      - "video/webm;codecs=vp9"
+      - "video/webm;codecs=vp8"
+      - "video/webm"
+
+  # Headless renderer (scripts/render_replay_video.py + replay/render-hook.mjs):
+  # the recommended way to make a video — no screen share, deterministic
+  # frames, and as fast as frames can be captured. The output video is
+  # output_width × output_height; the page is laid out at those pixels divided
+  # by css_scale (1.5 → a 1280×720 layout for a 1080p video, so HUD text keeps
+  # the proportions of a normal window) and captured at css_scale device
+  # pixels. fps is the video frame rate and the size of each time step; after
+  # each step the renderer waits up to settle_timeout_ms for the map's tile
+  # requests to finish before capturing. jpeg_quality is the per-frame capture
+  # quality, crf the x264 quality (lower = better/larger, 18 ≈ visually
+  # lossless). chrome_args are the Chromium flags needed for WebGL in headless
+  # mode: Chrome 154 dropped the software (SwiftShader) WebGL fallback, so
+  # headless rendering needs a GPU reachable through Vulkan.
+  render:
+    fps: 30
+    output_width: 1920
+    output_height: 1080
+    css_scale: 1.5
+    settle_timeout_ms: 400
+    jpeg_quality: 92
+    crf: 18
+    chrome_args:
+      - "--use-angle=vulkan"
+      - "--enable-features=Vulkan"
+      - "--ignore-gpu-blocklist"
+      - "--hide-scrollbars"
+
+  # Strava activity export link template (replay/strava-link.mjs). {id} is
+  # the activity id, {export} becomes export_original (the uploaded FIT/TCX)
+  # or export_gpx. Opened in a new tab — it only works for the logged-in owner
+  # of the activity, which is exactly why the browser cannot fetch it itself.
+  strava_export_url: "https://www.strava.com/activities/{id}/{export}"
+
 # --- Landing page hero replay ------------------------------------------------
 #
 # The public landing page (app/index.html, driven by app/landing/landing.mjs)

@@ -42,9 +42,10 @@ It is built for people who want to:
 - **Street imagery in first person (opt-in)** — ride through real street-level photos from [Mapillary](https://www.mapillary.com/) wherever the route has coverage, rendered by the app's own 3D projection of Mapillary's reconstructions so the view moves continuously with you, with the 3D view filling the gaps, a coverage strip under the elevation profile, a local cache so a route you rode before plays offline, and a guided way to capture and publish your own ride so you can ride it back.
 - **FIT export** — record rides locally and download standards-compliant `.fit` files classified as virtual cycling activities.
 - **Simulation and demo modes** — preview a route at a chosen speed, or drive the complete UI with synthetic trainer and heart-rate data.
+- **Ride replay and video export** — open a ride you really rode (a FIT file, or a GPX with timestamps, straight from your head unit or Strava) and watch it replayed over the 3D terrain at its recorded speed, with your real power, heart rate and cadence on the HUD — then render it to a 1080p MP4 of exactly the overlays you choose, frame by frame in the browser, as fast as the map can draw.
 - **Recording view** — frame the map at an exact recording size and choose which HUD components appear in the recording.
 - **Local-first persistence** — routes, progress, recordings, settings, camera preferences, and remembered sensors survive reloads without an account.
-- **Zero build step** — vanilla HTML, CSS, and JavaScript ES modules. No framework, bundler, npm packages, or `node_modules`.
+- **Zero build step** — vanilla HTML, CSS, and JavaScript ES modules. No framework, bundler, or `node_modules`; the one or two libraries used are vendored as static files.
 
 ## How to ride
 
@@ -58,6 +59,20 @@ It is built for people who want to:
 6. Use **Download .FIT** whenever you want to export the recorded ride.
 
 Not on the bike? Use the Simulation card's **Start** button to preview the route at a fixed speed. Real pedaling automatically stops a running simulation and takes priority.
+
+### Replay a recorded ride and export a video
+
+The **Ride replay** card turns a ride you actually did into a cinematic replay: no trainer, no simulation — the rider moves exactly as fast as you did, and the HUD shows the power, heart rate and cadence you recorded.
+
+1. Open the ride with **Open recorded ride…** (or the top bar's **Open GPX or FIT…**). A `.fit` file from a Garmin, Wahoo or similar head unit works directly; so does a GPX export as long as its points carry timestamps (Strava's and most head units' GPX exports do).
+2. For a Strava activity, paste its link into the card. GPX Rider cannot download the file for you — Strava's exports need your own login session — but **Get FIT** / **Get GPX** opens the export in a new tab where you are logged in; save the file and open it here. The activity id stays attached to the replay as its source.
+3. Press **Play** to watch the replay in the normal ride view. Stops longer than a few seconds are skipped, the speed selector (1× to 32×) turns a long ride into a time-lapse, and the scrubber or a click on the elevation profile jumps anywhere in the ride.
+4. **Preview & record** opens the recording view: the map pinned to the video's size, with a toolbar to hide the clock, meters, bottom dock, climb banner, controls or minimap, pick the playback speed, and choose the camera (the angled follow camera by default, or first person). What you see is what the video shows.
+5. **Record video** asks the browser to share **This Tab** once, then renders the video right there, frame by frame: the app's clock is frozen and advanced exactly one video frame per captured frame, so the ride, camera and HUD step deterministically and every frame is encoded with its exact timestamp. The ride opens on a short overview shot, flies down to the rider, plays to the finish-line orbit (or **Stop & save**), and downloads as a 1920×1080 H.264 MP4. Rendering runs at the tab capture's frame rate, which is bounded by your display's refresh rate: on a 60 Hz display a 30 fps video renders at up to about twice real time, on a 120 Hz display up to four times. Ride time does not matter, only video length: a two-hour ride at 16× is about eight minutes of video and renders in four to eight minutes. Keep the tab visible while it renders.
+
+The replay never writes to the FIT buffer and never sends grade to a connected trainer; pedaling, the simulation button or demo mode pause it and take over. The loaded recording survives reloads together with the route.
+
+For batch rendering without a browser window, **Copy render command** in the toolbar produces a command for the optional headless renderer, `scripts/render_replay_video.py`, with the same overlay, speed and camera choices. It needs Playwright for Python (`pip install playwright`), ffmpeg, and a GPU reachable through Vulkan (recent Chrome has no software WebGL), and reuses a running `make run` server on port 5173.
 
 ### Street imagery
 
@@ -137,7 +152,7 @@ The HUD belongs to the map viewport and remains a standard ride screen in both w
 - The minimap and map controls remain available on the ride surface.
 - The data dock can collapse to a compact strip when more map is wanted.
 
-The separate **Recording view** fixes the map to a consistent output size and lets you hide selected components—clock, meters, bottom dock, climb banner, demo chip, controls, or minimap—without changing the normal ride screen.
+The separate **Recording view** fixes the map to a consistent output size; its toolbar lets you hide selected components—clock, meters, bottom dock, climb banner, demo chip, controls, or minimap—without changing the normal ride screen, and hosts the replay transport and video **Record** button when a recorded ride is loaded.
 
 ### Camera diagnostics
 
@@ -210,6 +225,19 @@ The official MapillaryJS viewer animates between photos on its own clock with an
 
 Pure modules: [`sfm-math.mjs`](app/street-view/sfm-math.mjs), [`sfm-camera.mjs`](app/street-view/sfm-camera.mjs), [`sfm-mesh.mjs`](app/street-view/sfm-mesh.mjs), [`sfm-path.mjs`](app/street-view/sfm-path.mjs) (all tested); the WebGL layer in [`sfm-gl.mjs`](app/street-view/sfm-gl.mjs), the shaders in [`sfm-shaders.mjs`](app/street-view/sfm-shaders.mjs), the GPU node cache in [`sfm-nodes.mjs`](app/street-view/sfm-nodes.mjs), the renderer in [`sfm-renderer.mjs`](app/street-view/sfm-renderer.mjs). Knobs live under `street_imagery.renderer` in [`app/core/tuning.yaml`](app/core/tuning.yaml).
 
+### Ride replay and in-browser video export
+
+A recorded ride is replayed through the very same movement loop, follow camera and HUD the live ride uses — the replay is simply a third movement source next to pedaling and the simulation — and the video is produced by the browser itself, with no server and no upload.
+
+- **A ride timeline instead of a speed.** [`ride-timeline.mjs`](app/replay/ride-timeline.mjs) turns the file's timestamped samples into ride time with stops squeezed out (a gap longer than the configured maximum during which the rider barely moved is shortened; one the rider rode through keeps its real length), cumulative route distance computed with the same haversine sum as the rendered route so the two can never drift apart, a speed channel derived over a trailing window when the file has none, held sensor channels, and calories integrated from power. Playback asks it where the rider was `elapsed` seconds in; a profile click asks the inverse question.
+- **A minimal FIT reader.** [`fit-decode.mjs`](app/replay/fit-decode.mjs) walks the FIT record stream — definition messages, normal and compressed-timestamp headers, developer fields skipped by size — and extracts just the record fields a replay needs. It is tested round-trip against the app's own FIT encoder, so the two halves of the format stay in agreement.
+- **An app that owns its clock.** Every time-based motion — the movement loop, the camera chase, transition arcs, the orbits, the HUD cadence — reads one clock ([`clock.mjs`](app/core/clock.mjs)) instead of `performance.now()`. In normal use it is the wall clock; during an export it is frozen and advanced by exactly one frame per captured image ([`render-hook.mjs`](app/replay/render-hook.mjs)), so the ride, camera and HUD step deterministically and the video is identical however fast or slow frames are produced. (Chrome's own virtual-time emulation was tried first and does not reliably freeze a page's timers; owning the clock does.)
+- **Tab capture as the camera, with every frame tagged.** The 3D map's WebGL canvas lives in a closed shadow root and cannot be read, so the pixels come from the browser's own tab capture, as for screenshots. But the stream is only *sampled*, and never guessed at: each clock step stamps a frame tag — a small color swatch in the window corner outside the recorded area, encoding the step index ([`frame-tag.mjs`](app/map/frame-tag.mjs)) — in the animation frame that step renders in, and the export reads the swatch back from every captured frame to know exactly which step it shows. That makes the pipeline safe to overlap: steps are produced at the capture's own pace with several in flight, so render, capture latency and encoding run concurrently instead of being waited out per frame. Each matched frame is cropped to the recording viewport at the output size, wrapped in a WebCodecs `VideoFrame` stamped frame-index/fps, encoded as H.264 and muxed into an MP4 with the vendored [mp4-muxer](app/vendor/mp4-muxer) ([`stepped-video.mjs`](app/map/stepped-video.mjs)). The ceiling is physical: a tab capture cannot deliver more frames than the display refreshes, so the export runs at refresh-rate ÷ 30 times real time. Browsers without WebCodecs fall back to a real-time `MediaRecorder` of the same canvas ([`video-capture.mjs`](app/map/video-capture.mjs)). Because the frame is what the browser composited, Google's attribution is always in the video.
+- **The preview is the recording view.** Rather than a separate preview renderer, the export records theater mode itself, so the overlay toggles, speed and camera you see are exactly what the video contains; the viewport hides the app's own buttons while capturing.
+- **The same steps drive a headless renderer.** Opened with `?render=1`, the app publishes the configure/step functions on `window`, and [`render_replay_video.py`](scripts/render_replay_video.py) drives a headless Chromium through them, screenshotting the viewport per step into ffmpeg — for batch renders with no window at all.
+
+Tests: [`ride-timeline.test.mjs`](tests/ride-timeline.test.mjs), [`fit-decode.test.mjs`](tests/fit-decode.test.mjs), [`frame-tag.test.mjs`](tests/frame-tag.test.mjs), [`video-capture.test.mjs`](tests/video-capture.test.mjs), [`strava-link.test.mjs`](tests/strava-link.test.mjs), [`render-command.test.mjs`](tests/render-command.test.mjs). Tuning: the `ride_replay` section of [`tuning.yaml`](app/core/tuning.yaml).
+
 ### Two trainer protocols behind one interface
 
 Most modern smart trainers speak the standard Fitness Machine Service (FTMS) over Bluetooth, but the wheel-on Tacx trainers (Flow, Vortex, Bushido, Genius) predate it and expose no FTMS service at all — they tunnel ANT+ FE-C over a vendor Bluetooth service instead. GPX Rider supports both from a single pairing flow:
@@ -222,9 +250,9 @@ The pure framing and page codec is isolated in [`app/trainer/fec.mjs`](app/train
 
 ### Architecture
 
-- **Zero build step, vanilla ES modules, no package dependencies.** The deployed `app/` directory is static HTML, CSS, JavaScript, and assets.
-- Code is organized by feature: camera, route processing, ride execution, trainer hardware, map rendering, HUD, persistence, gallery, and demo mode.
-- Pure geometry, routing, climb, ETA, units, FIT, and simulation logic is separated from browser and DOM coordination and tested with Node's built-in test runner.
+- **Zero build step, vanilla ES modules.** The deployed `app/` directory is static HTML, CSS, JavaScript, and assets; the few third-party libraries are vendored as ES module builds under `app/vendor/` (see `THIRD_PARTY_NOTICES.md`).
+- Code is organized by feature: camera, route processing, ride execution, trainer hardware, map rendering, HUD, persistence, gallery, demo mode, and ride replay.
+- Pure geometry, routing, climb, ETA, units, FIT encoding and decoding, ride-timeline, and simulation logic is separated from browser and DOM coordination and tested with Node's built-in test runner.
 - A deliberately thin `app.js` performs startup and event wiring; it does not contain feature logic.
 - Shared mutable application state lives in one documented foundation module.
 - Adjustable physics, thresholds, defaults, colors, timings, and paths live in `app/core/tuning.yaml`.
@@ -278,7 +306,7 @@ The workflow also bakes in two optional repository secrets: `MAPS_API_KEY` (a re
 
 ## Data and privacy
 
-GPX Rider has no user accounts and no application backend. Routes, settings, ride progress, sensor preferences, and recorded samples remain in browser storage. Trainer and heart-rate communication happens directly between the browser and the selected Bluetooth devices.
+GPX Rider has no user accounts and no application backend. Routes, settings, ride progress, sensor preferences, recorded samples, and loaded ride recordings remain in browser storage. A pasted Strava link is only parsed locally; the app never talks to Strava — the export opens in a new tab under your own Strava session. Trainer and heart-rate communication happens directly between the browser and the selected Bluetooth devices.
 
 The hosted application's Maps key is restricted to the GPX Rider domain. Self-hosted installations use their own key.
 
@@ -297,6 +325,7 @@ When **street imagery** is enabled (off by default), the app asks Mapillary (own
 - Calories are derived from power, or taken from FTMS Expended Energy when an FTMS trainer reports it (FE-C trainers report no energy field, so calories come from power).
 - Heart rate comes from a paired strap or, as a fallback, the trainer's own heart-rate field.
 - Terrain avoidance uses the route's own elevation as a free offline floor and, when online terrain is enabled, augments it with free public Mapzen/AWS terrain tiles. With online terrain off (or before tiles load), it works best where the route itself follows the hillside.
+- Ride replay needs a file with timestamps: a FIT activity or a GPX whose points carry `<time>`. A planned GPX (no timestamps) loads as a normal route with nothing to replay. Video export needs Chrome or Edge (tab capture plus WebCodecs; without WebCodecs it falls back to a real-time recording). The frame-stepped export renders as fast as the map can draw and the GPU can encode, so the video's length, not the ride's, decides how long it takes; keep the tab visible meanwhile. Strava activities cannot be fetched directly (their exports require your Strava login and the API requires server-side OAuth); the card opens Strava's export for you to save and open.
 - Street imagery depends on what Mapillary's contributors have uploaded: coverage is partial (often excellent on famous climbs and in cities, sparse on remote roads), photos vary in age, season, and camera, and gaps show the 3D view. Photos are shown at Mapillary's 1024 px (2048 px for 360°) thumbnail size, the smooth moving-camera transition only works between photos of the same reconstruction (others cross-fade), and the first ride of a route scans and prepares it before playback starts on the road ahead.
 
 ## Tested hardware

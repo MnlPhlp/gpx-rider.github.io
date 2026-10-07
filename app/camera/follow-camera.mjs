@@ -3,6 +3,7 @@
 // (pure math in camera.mjs), lifts the camera over terrain, and captures
 // manual drags back into the follow-camera settings.
 
+import { nowMs } from "../core/clock.mjs";
 import {
   applyCameraLift,
   cameraEyePosition,
@@ -68,7 +69,7 @@ export function updateMapCamera() {
   // stepCameraFlight here every tick.
   if (state.overviewAnim || state.cameraTransition) return;
 
-  const settled = stepCameraFlight(performance.now());
+  const settled = stepCameraFlight(nowMs());
   // While the rider moves, the movement loop calls this every frame; when
   // nothing else ticks, the flight loop keeps an unfinished move animating.
   if (!settled && !state.movementLoopActive) ensureCameraFlightLoop();
@@ -271,7 +272,7 @@ export function ensureCameraFlightLoop() {
       state.cameraFlightLoopActive = false;
       return;
     }
-    const settled = stepCameraFlight(performance.now());
+    const settled = stepCameraFlight(nowMs());
     // Keep the ground dot's apparent size steady while the camera flies.
     if (state.riderDot) updateRiderDot(interpolateRoutePoint(state.route, state.progressMeters));
     if (settled) {
@@ -302,7 +303,7 @@ export function applyCameraNow(camera) {
       center: { ...camera.center },
       eyeVelocity: [0, 0, 0],
       centerVelocity: [0, 0, 0],
-      lastStepMs: performance.now(),
+      lastStepMs: nowMs(),
     }
     : null;
   updateGalleryMetadataExport();
@@ -325,7 +326,7 @@ function currentTerrainLift(camera, centerAltitude) {
     return 0;
   }
 
-  const now = performance.now();
+  const now = nowMs();
   if (now - state.lastLiftComputeMs >= TERRAIN_LIFT_RECOMPUTE_MS) {
     state.lastLiftComputeMs = now;
     state.cameraLiftTargetMeters = computeTerrainLiftTarget(camera, centerAltitude);
@@ -411,7 +412,7 @@ function currentVisibilityNudge(camera, centerAltitude, tilt) {
     return 0;
   }
 
-  const now = performance.now();
+  const now = nowMs();
   if (now - state.lastVisNudgeComputeMs >= RIDER_VISIBILITY_RECOMPUTE_MS) {
     state.lastVisNudgeComputeMs = now;
     state.cameraVisNudgeTargetDegrees = computeVisibilityNudgeTarget(camera, centerAltitude, tilt);

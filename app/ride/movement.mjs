@@ -1,12 +1,15 @@
 // Movement: simulation button + pedaling detection + the movement loop.
 //
-// Two independent movement sources drive the rider along the route:
+// Three movement sources drive the rider along the route:
 // 1. Pedaling — the trainer reports real speed; always wins when present.
 // 2. Simulation — the slider speed, toggled by the Start/Stop simulation
 //    button, for previewing a route without pedaling.
-// Starting to pedal stops a running simulation; the map then follows trainer
-// speed and stops when the rider stops pedaling.
+// 3. Replay — a recorded ride's own timing (replay/replay-mode.mjs): the
+//    loop asks the replay where the rider was instead of integrating a speed.
+// Starting to pedal stops a running simulation or replay; the map then
+// follows trainer speed and stops when the rider stops pedaling.
 
+import { nowMs } from "../core/clock.mjs";
 import { closeOverviewModeMenu, syncOverviewControls } from "../camera/camera-ui.mjs";
 import { syncFocusedClimbList } from "../route/climbs-ui.mjs";
 import { advanceDemoTelemetry, stopDemoMode, syncDemoModeUi } from "../demo/demo-mode.mjs";
@@ -22,6 +25,15 @@ import {
 import { startCameraTransitionToFollow } from "../camera/transition-camera.mjs";
 import { saveRide, saveRideThrottled } from "../storage/persistence.mjs";
 import { renderProfile } from "../route/profile-ui.mjs";
+import {
+  advanceReplay,
+  finishReplay,
+  pauseReplay,
+  replaySpeedKph,
+  seekReplayToSeconds,
+  syncReplayToProgress,
+} from "../replay/replay-mode.mjs";
+import { handleReplayFinishedWhileRecording } from "../replay/video-export.mjs";
 import { persistRideLog, recordRideTick } from "./recorder.mjs";
 import { updateRecordingUi } from "./recording-ui.mjs";
 import { updateRideUi } from "./ride-ui.mjs";
@@ -50,16 +62,17 @@ import {
 import { activeCaloriesFromPower } from "../core/units.mjs";
 
 // Speed the rider advances at: trainer-reported while pedaling (always wins),
-// else the simulation slider. Callers that care whether anything is actually
-// moving combine it with isMoving().
+// else the recording's speed while a replay plays, else the simulation
+// slider. Callers that care whether anything is actually moving combine it
+// with isMoving().
 export function currentSpeedKph() {
-  return state.pedaling && Number.isFinite(state.trainerSpeedKph)
-    ? state.trainerSpeedKph
-    : Number(els.speedInput.value);
+  if (state.pedaling && Number.isFinite(state.trainerSpeedKph)) return state.trainerSpeedKph;
+  if (state.replay.playing) return replaySpeedKph();
+  return Number(els.speedInput.value);
 }
 
 export function isMoving() {
-  return state.simulating || state.pedaling;
+  return state.simulating || state.pedaling || state.replay.playing;
 }
 
 export function toggleSimulation() {
@@ -76,9 +89,12 @@ export function toggleSimulation() {
     updateProgressLabel("You're pedaling — the ride is already following trainer speed.");
     return;
   }
+  // The simulation takes over from a playing replay.
+  pauseReplay({ silent: true });
 
   if (state.progressMeters >= routeTotalDistance(state.route)) {
     state.progressMeters = 0;
+    seekReplayToSeconds(0);
   }
   state.simulating = true;
   updateStartButton();
@@ -111,6 +127,10 @@ export function setPedaling(pedaling) {
       state.simulating = false;
       updateStartButton();
       updateProgressLabel("Pedaling detected — simulation stopped, following trainer speed.");
+    }
+    if (state.replay.playing) {
+      pauseReplay({ silent: true });
+      updateProgressLabel("Pedaling detected — replay paused, following trainer speed.");
     }
     ensureMovementLoop();
   } else if (!state.simulating) {
@@ -148,7 +168,7 @@ export function ensureMovementLoop() {
   }
   if (state.movementLoopActive) return;
   state.movementLoopActive = true;
-  state.lastTick = performance.now();
+  state.lastTick = nowMs();
   scheduleTick();
 }
 
@@ -157,10 +177,12 @@ export function ensureMovementLoop() {
 // Fall back to a coarse timeout whenever the page is hidden.
 function scheduleTick() {
   cancelScheduledTick();
+  // Both paths read the app clock (core/clock.mjs) rather than the rAF
+  // timestamp, so a frozen/stepped clock (headless render) is honored.
   if (document.hidden) {
-    state.tickTimeout = window.setTimeout(() => tick(performance.now()), 500);
+    state.tickTimeout = window.setTimeout(() => tick(nowMs()), 500);
   } else {
-    state.tickRaf = requestAnimationFrame(tick);
+    state.tickRaf = requestAnimationFrame(() => tick(nowMs()));
   }
 }
 
@@ -192,8 +214,10 @@ function handleMovementStopped() {
 
 export function resetRide() {
   state.simulating = false;
+  pauseReplay({ silent: true });
   state.progressMeters = 0;
-  state.lastTick = performance.now();
+  seekReplayToSeconds(0);
+  state.lastTick = nowMs();
   // A reset while stationary honors the chosen camera surface: overview stays
   // overview, rider camera stays with the rider.
   if (!isMoving()) {
@@ -224,8 +248,15 @@ function tick(now) {
   const totalDistance = routeTotalDistance(state.route);
 
   const previousProgress = state.progressMeters;
-  const metersAdvanced = metersPerSecond * elapsedSeconds;
-  state.progressMeters = Math.min(totalDistance, state.progressMeters + metersAdvanced);
+  if (state.replay.playing && !state.pedaling) {
+    // A replay moves the rider to where the recording had them at this
+    // moment — no speed integration, so pauses and sprints play back as ridden.
+    advanceReplay(elapsedSeconds);
+    state.progressMeters = Math.min(totalDistance, state.progressMeters);
+  } else {
+    const metersAdvanced = metersPerSecond * elapsedSeconds;
+    state.progressMeters = Math.min(totalDistance, state.progressMeters + metersAdvanced);
+  }
   if (state.demoModeActive) {
     advanceDemoTelemetry(0, gradeAt(state.route, state.progressMeters), state.progressMeters - previousProgress);
   }
@@ -268,6 +299,9 @@ function tick(now) {
 
   if (state.progressMeters >= totalDistance) {
     state.simulating = false;
+    const wasReplaying = state.replay.playing;
+    finishReplay();
+    if (wasReplaying) handleReplayFinishedWhileRecording();
     if (state.demoModeActive) {
       stopDemoMode({
         message: "Demo mode finished at the end of the route.",
@@ -293,7 +327,10 @@ export function seekToMeters(meters) {
   if (!state.route.length) return;
   const wasMoving = isMoving();
   state.progressMeters = clamp(meters, 0, routeTotalDistance(state.route));
-  state.lastTick = performance.now();
+  // A loaded recording follows the rider: the playhead jumps to the moment
+  // the ride reached this distance.
+  syncReplayToProgress();
+  state.lastTick = nowMs();
   // A teleport while parked in the rider camera (clicking the elevation
   // profile) flies the transition arc from the old camera pose to the new
   // rider position, instead of a plain chase snap. Skip it while moving (the

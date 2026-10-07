@@ -7,6 +7,7 @@ import { advanceDemoRide, createDemoRideModel, seedDemoHistory } from "./demo.mj
 import { registerHudComponent } from "../hud/screen-manager.mjs";
 import { isHeartRateConnected } from "../trainer/heartrate.mjs";
 import { ensureMovementLoop, setPedaling, updatePedalingFromSpeed, updateStartButton } from "../ride/movement.mjs";
+import { pauseReplay } from "../replay/replay-mode.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
 import { gradeAt, interpolateRoutePoint } from "../route/route.mjs";
 import { els, state, updateProgressLabel } from "../core/state.mjs";
@@ -35,6 +36,8 @@ function startDemoMode() {
     return;
   }
 
+  // Demo mode is a movement source of its own; a playing replay yields.
+  pauseReplay({ silent: true });
   state.demoModeActive = true;
   state.demoModel = createDemoRideModel(DEMO_RIDE);
   seedDemoHistory(state.demoModel, {

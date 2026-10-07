@@ -33,7 +33,13 @@ export function updateFullscreenClock(riddenText, ascentText = "--") {
 }
 
 export function updateFullscreenLocalTime() {
-  els.fsClockLocal.textContent = formatLocalTime(new Date(), state.timeFormat);
+  // A loaded recording shows the time of day the ride actually happened at
+  // the playhead, not the wall clock of whoever is watching the replay.
+  const timeline = state.replay.timeline;
+  const date = timeline?.startTimeMs
+    ? new Date(timeline.startTimeMs + state.replay.elapsedSeconds * 1000)
+    : new Date();
+  els.fsClockLocal.textContent = formatLocalTime(date, state.timeFormat);
 }
 
 function startFullscreenClock() {

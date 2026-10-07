@@ -11,6 +11,7 @@ import {
 import { seekToMeters } from "../ride/movement.mjs";
 import { distanceAtProfileX, drawEmptyProfile, drawProfile } from "./profile.mjs";
 import { rideLogSamples } from "../ride/recorder.mjs";
+import { timelineHistoryUpTo } from "../replay/ride-timeline.mjs";
 import { routeTotalDistance } from "./route.mjs";
 import { els, state } from "../core/state.mjs";
 import {
@@ -62,6 +63,12 @@ function currentProfileHistorySamples() {
   }
   if (state.demoHistorySamples.length) {
     return state.demoHistorySamples;
+  }
+  // A loaded recording draws its own speed/power/HR up to the playhead.
+  if (state.replay.timeline) {
+    return timelineHistoryUpTo(state.replay.timeline, state.replay.elapsedSeconds, {
+      limit: PROFILE_HISTORY_SAMPLE_LIMIT,
+    });
   }
   return rideLogSamples().slice(-PROFILE_HISTORY_SAMPLE_LIMIT);
 }

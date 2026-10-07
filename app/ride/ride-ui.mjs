@@ -3,6 +3,7 @@
 // profile redraw, HUD tiles, dock readouts, climb status/banner, and the
 // trainer grade sample.
 
+import { nowMs } from "../core/clock.mjs";
 import { updateCameraSettingsLabels } from "../camera/camera-ui.mjs";
 import { isFirstPersonCameraView } from "../camera/camera-ui.mjs";
 import { updateClimbStatus, updateFullscreenClimbBanner } from "../route/climbs-ui.mjs";
@@ -12,6 +13,7 @@ import { updateGalleryMetadataExport } from "../gallery-ui/gallery-export.mjs";
 import { clamp } from "../core/geo.mjs";
 import { updateFullscreenClock } from "../hud/map-hud.mjs";
 import { isMoving } from "./movement.mjs";
+import { replayRemainingSeconds } from "../replay/replay-mode.mjs";
 import { renderProfile } from "../route/profile-ui.mjs";
 import { updateRecordingUi } from "./recording-ui.mjs";
 import {
@@ -57,7 +59,7 @@ export function updateRideUi(options = {}) {
 
   // Per-frame work ends here. DOM stats, the profile canvas, and the trainer
   // grade only need a few updates per second while riding.
-  const now = performance.now();
+  const now = nowMs();
   if (!options.force && isMoving() && now - state.lastSlowUiAt < SLOW_UI_INTERVAL_MS) return;
   state.lastSlowUiAt = now;
 
@@ -124,7 +126,9 @@ export function updateRideUi(options = {}) {
   updateTrainingMeters(grade);
 
   updateRecordingUi();
-  if (!state.demoModeActive) {
+  // A playing replay is a film of a ride, not a ride: no grade goes to a
+  // connected trainer until the rider actually pedals (which pauses it).
+  if (!state.demoModeActive && !state.replay.playing) {
     queueTrainerGradeSample(grade, {
       force: options.force,
       intervalSeconds: state.gradeUpdateIntervalSeconds,
@@ -150,6 +154,11 @@ function updateAscentProgress(ascentSoFar, totalAscent) {
 function currentEtaSeconds(totalDistance, totalAscent, totalDescent) {
   const remainingMeters = totalDistance - state.progressMeters;
   if (remainingMeters <= 0) return 0;
+
+  // A recorded ride knows exactly when it finished.
+  if (state.replay.timeline && !state.pedaling && !state.simulating) {
+    return replayRemainingSeconds();
+  }
 
   // The simulation rides at a constant slider speed — plain arithmetic is
   // exact there, no model needed.

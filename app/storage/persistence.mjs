@@ -19,6 +19,8 @@ import { normalizeHudOrder } from "../hud/map-hud.mjs";
 import { updateStartButton } from "../ride/movement.mjs";
 import { enterOverviewMode } from "../camera/overview-camera.mjs";
 import { renderProfile } from "../route/profile-ui.mjs";
+import { restoreReplay } from "../replay/replay-load.mjs";
+import { syncReplayToProgress } from "../replay/replay-mode.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
 import { enrichRoute, routeTotalDistance } from "../route/route.mjs";
 import { BEACON_COLOR_PATTERN, renderRoute } from "../map/route-render.mjs";
@@ -437,6 +439,10 @@ export function restoreSavedRide() {
   renderRoute();
   renderProfile();
   updateRouteOverview();
+  // The recording behind this route (if it was one) comes back with it, and
+  // its playhead is put where the saved progress stands.
+  restoreReplay();
+  syncReplayToProgress();
   updateRideUi({ force: true });
   els.startBtn.disabled = false;
   els.resetBtn.disabled = false;

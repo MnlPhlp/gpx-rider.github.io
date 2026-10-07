@@ -6,6 +6,7 @@
 import { stopDemoMode, syncDemoModeUi } from "../demo/demo-mode.mjs";
 import { isHeartRateConnected } from "../trainer/heartrate.mjs";
 import { setPedaling, updatePedalingFromSpeed } from "./movement.mjs";
+import { replayCaloriesKcal } from "../replay/replay-mode.mjs";
 import { rideLogSummary } from "./recorder.mjs";
 import { gradeAt } from "../route/route.mjs";
 import { els, state } from "../core/state.mjs";
@@ -125,6 +126,9 @@ export function currentCaloriesKcal() {
   if (state.demoModeActive && state.demoModel) {
     return state.demoModel.caloriesKcal;
   }
+  // A loaded recording shows the calories its own power channel accounts
+  // for (none when it recorded no power), never the FIT buffer's.
+  if (state.replay.timeline) return replayCaloriesKcal();
   if (state.demoHistorySamples.length && state.demoCaloriesKcal > 0) {
     return state.demoCaloriesKcal;
   }
@@ -138,6 +142,8 @@ export function currentRideTimerSeconds() {
   if (state.demoModeActive && state.demoModel) {
     return state.demoModel.elapsedSeconds;
   }
+  // The replay's elapsed is the playhead in ride time.
+  if (state.replay.timeline) return state.replay.elapsedSeconds;
   if (state.demoHistorySamples.length && state.demoTimerSeconds > 0) {
     return state.demoTimerSeconds;
   }
@@ -156,7 +162,11 @@ export function updateTelemetryUi() {
   els.powerStat.textContent = powerText;
   els.speedStat.textContent = speedText;
   els.heartRateStat.textContent = heartRateText;
-  els.trainerStat.textContent = state.demoModeActive ? "Demo trainer" : els.trainerStat.textContent;
+  els.trainerStat.textContent = state.demoModeActive
+    ? "Demo trainer"
+    : state.replay.playing
+    ? "Recorded ride"
+    : els.trainerStat.textContent;
   els.trainerDot.classList.toggle("connected", trainerConnected);
   els.hrConnectionStat.textContent = state.demoModeActive
     ? `${heartRateText} demo`

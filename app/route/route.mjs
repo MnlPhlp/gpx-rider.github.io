@@ -9,20 +9,50 @@ import {
 // Returns `{ points, name }`: track/route points plus the GPX's own name
 // (from <metadata><name>, <trk><name>, or <rte><name>, in that preference
 // order), or a null name when the file doesn't carry one.
+//
+// A *recorded* GPX (a head unit's or Strava's export) also carries a <time>
+// per point and, in its extensions, heart rate / cadence / power. Those come
+// back as optional `time` (unix seconds), `heartRateBpm`, `cadenceRpm` and
+// `powerWatts` fields on the point — absent (undefined) on a planned route —
+// so replay/ride-timeline.mjs can rebuild the ride's timing from them.
 export function parseGpx(text) {
   const doc = new DOMParser().parseFromString(text, "application/xml");
   const parserError = doc.querySelector("parsererror");
   if (parserError) return { points: [], name: null };
 
-  const points = [...doc.querySelectorAll("trkpt, rtept")].map((point) => ({
-    lat: Number(point.getAttribute("lat")),
-    lng: Number(point.getAttribute("lon")),
-    ele: Number(point.querySelector("ele")?.textContent ?? 0),
-  })).filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+  const points = [...doc.querySelectorAll("trkpt, rtept")].map((point) => {
+    const parsed = {
+      lat: Number(point.getAttribute("lat")),
+      lng: Number(point.getAttribute("lon")),
+      ele: Number(point.querySelector("ele")?.textContent ?? 0),
+    };
+    const time = Date.parse(point.querySelector("time")?.textContent?.trim() ?? "");
+    if (Number.isFinite(time)) parsed.time = time / 1000;
+    const heartRate = extensionNumber(point, "hr");
+    const cadence = extensionNumber(point, "cad");
+    const power = extensionNumber(point, "power");
+    if (heartRate !== null) parsed.heartRateBpm = heartRate;
+    if (cadence !== null) parsed.cadenceRpm = cadence;
+    if (power !== null) parsed.powerWatts = power;
+    return parsed;
+  }).filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
 
   const name = doc.querySelector("metadata > name, trk > name, rte > name")?.textContent.trim() || null;
 
   return { points, name };
+}
+
+// First numeric <extensions> descendant with this local name, regardless of
+// namespace prefix (Garmin's gpxtpx:hr / gpxtpx:cad, Strava's bare <power>).
+function extensionNumber(point, localName) {
+  const extensions = point.querySelector("extensions");
+  if (!extensions) return null;
+  for (const element of extensions.getElementsByTagName("*")) {
+    if (element.localName !== localName) continue;
+    const value = Number(element.textContent);
+    return Number.isFinite(value) ? value : null;
+  }
+  return null;
 }
 
 // Adds cumulative track fields to each point: `distance` ridden so far plus

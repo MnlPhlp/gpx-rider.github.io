@@ -54,6 +54,15 @@ import {
 } from "./route/profile-ui.mjs";
 import { persistRideLog, restoreRideLog, rideLogSummary } from "./ride/recorder.mjs";
 import { confirmClearRideData, downloadFitFile, updateRecordingUi } from "./ride/recording-ui.mjs";
+import { loadRecordedRideFile, openStravaExport, updateStravaLinkFromControl } from "./replay/replay-load.mjs";
+import {
+  handleReplayScrub,
+  initReplayUi,
+  toggleReplayPlayback,
+  updateReplaySpeedFromControl,
+} from "./replay/replay-mode.mjs";
+import { initRenderHook } from "./replay/render-hook.mjs";
+import { copyRenderCommand, toggleReplayVideoExport, updateReplayCameraFromControl } from "./replay/video-export.mjs";
 import { loadGpxFile, loadGpxFromUrl } from "./route/route-load.mjs";
 import {
   openSettings,
@@ -108,6 +117,9 @@ import {
 startApp();
 
 async function startApp() {
+  // `?render=1` (the headless video renderer) freezes the app clock before
+  // any loop starts; a no-op otherwise.
+  initRenderHook();
   document.title = APP_NAME;
   els.brandName.textContent = APP_NAME;
   // Everything below reads persisted state through storage.mjs, so the
@@ -139,6 +151,7 @@ async function startApp() {
   // function). map-hud registers its own pieces inside initializeMapHud.
   initScreenManager(els.mapViewport);
   initTheaterModeUi();
+  initReplayUi();
   registerClimbBannerHud();
   registerDemoBannerHud();
   registerTrainingMetersHud();
@@ -272,6 +285,18 @@ function bindEvents() {
   els.connectHrBtn.addEventListener("click", connectHeartRate);
   els.demoModeBtn.addEventListener("click", toggleDemoMode);
   els.resizeRecordingWindowBtn.addEventListener("click", toggleTheaterMode);
+  els.replayFile.addEventListener("change", loadRecordedRideFile);
+  els.replayStravaInput.addEventListener("input", updateStravaLinkFromControl);
+  els.replayStravaFitBtn.addEventListener("click", openStravaExport);
+  els.replayStravaGpxBtn.addEventListener("click", openStravaExport);
+  els.replayPreviewBtn.addEventListener("click", toggleTheaterMode);
+  els.replayPlayButtons.forEach((button) => button.addEventListener("click", toggleReplayPlayback));
+  els.replayScrubbers.forEach((scrubber) => scrubber.addEventListener("input", handleReplayScrub));
+  els.replaySpeedSelects.forEach((select) => select.addEventListener("change", updateReplaySpeedFromControl));
+  els.replayRecordBtn.addEventListener("click", toggleReplayVideoExport);
+  els.replayCameraSelect.addEventListener("change", updateReplayCameraFromControl);
+  els.replayCopyCommandBtn.addEventListener("click", copyRenderCommand);
+  els.theaterExitBtn.addEventListener("click", exitTheaterMode);
   els.startBtn.addEventListener("click", toggleSimulation);
   els.resetBtn.addEventListener("click", resetRide);
   els.downloadFitBtn.addEventListener("click", downloadFitFile);

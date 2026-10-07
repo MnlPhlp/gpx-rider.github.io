@@ -1,6 +1,8 @@
-// Route loading: GPX file/URL intake, applying parsed GPX to the app state,
-// and the once-per-load route overview (name chip, difficulty classification,
-// climbs list).
+// Route loading: GPX/FIT file and GPX URL intake, applying a parsed route to
+// the app state, and the once-per-load route overview (name chip, difficulty
+// classification, climbs list). A file that turns out to be a *recorded*
+// ride (a FIT, or a GPX with timestamps) also hands its timing to the replay
+// feature (replay/replay-load.mjs) — the route itself is applied the same way.
 
 import { detectClimbs } from "./climbs.mjs";
 import { focusClimb, syncFocusedClimbList } from "./climbs-ui.mjs";
@@ -12,6 +14,12 @@ import { updateStartButton } from "../ride/movement.mjs";
 import { enterOverviewMode } from "../camera/overview-camera.mjs";
 import { saveRide } from "../storage/persistence.mjs";
 import { renderProfile } from "./profile-ui.mjs";
+import { isFitFile } from "../replay/fit-decode.mjs";
+import {
+  applyRecordedFit,
+  attachReplayTimeline,
+  replayTimelineFromGpxPoints,
+} from "../replay/replay-load.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
 import {
   enrichRoute,
@@ -27,9 +35,19 @@ import { formatAltitude, formatDistance } from "../core/units.mjs";
 export async function loadGpxFile(event) {
   const [file] = event.target.files;
   if (!file) return;
+  // Clear the input so picking the same file again re-triggers `change`.
+  event.target.value = "";
+  await loadRideFile(file);
+}
 
-  const text = await file.text();
-  applyGpxText(text, { fallbackName: filenameToRouteName(file.name) });
+// One intake for both pickers: a FIT file becomes a recorded ride, a GPX a
+// route (with a replay attached when it carries timestamps). Resolves to
+// whether a replay timeline was attached.
+export async function loadRideFile(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const fallbackName = filenameToRouteName(file.name);
+  if (isFitFile(bytes)) return applyRecordedFit(bytes, { fallbackName });
+  return applyGpxText(new TextDecoder().decode(bytes), { fallbackName });
 }
 
 // Gallery rides pass their curated title as `overrideName`, which wins over
@@ -45,14 +63,28 @@ function filenameToRouteName(filename) {
   return filename.replace(/\.[^./\\]+$/, "").trim() || null;
 }
 
+// Parses a GPX and applies it. Returns whether a replay timeline was attached
+// (a GPX with a <time> on every point is a recorded ride).
 export function applyGpxText(text, { overrideName = null, fallbackName = null, galleryMetadata = null } = {}) {
-  const { points: route, name: gpxName } = parseGpx(text);
+  const { points, name: gpxName } = parseGpx(text);
 
-  if (route.length < 2) {
+  if (points.length < 2) {
     updateProgressLabel("That GPX file does not contain enough track points.");
-    return;
+    return false;
   }
 
+  const timeline = replayTimelineFromGpxPoints(points);
+  applyRoutePoints(timeline?.points ?? points, {
+    routeName: overrideName || gpxName || fallbackName,
+    galleryMetadata,
+  });
+  attachReplayTimeline(timeline, { sourceName: state.routeName });
+  return Boolean(timeline);
+}
+
+// Applies plain `{ lat, lng, ele }` points as the loaded route: the shared
+// route-swap sequence behind GPX files, gallery routes and recorded rides.
+export function applyRoutePoints(route, { routeName = null, galleryMetadata = null } = {}) {
   stopDemoMode({ silent: true });
   clearDemoHistory();
   state.route = enrichRoute(route);
@@ -68,7 +100,7 @@ export function applyGpxText(text, { overrideName = null, fallbackName = null, g
       if (point) prefetchTerrainAround(point.lat, point.lng);
     }
   }
-  state.routeName = overrideName || gpxName || fallbackName;
+  state.routeName = routeName;
   state.galleryMetadata = galleryMetadata && typeof galleryMetadata === "object"
     ? structuredClone(galleryMetadata)
     : null;
