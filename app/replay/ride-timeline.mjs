@@ -126,8 +126,12 @@ export function timelineIndexAt(timeline, elapsedSeconds) {
 }
 
 // Route distance the rider had covered `elapsedSeconds` into the ride,
-// interpolated between samples and clamped to the ride.
+// interpolated between samples and clamped to the ride. At (or past) the
+// ride's end it is the exact total: the serialized samples are rounded to
+// 0.1 m, so the last sample alone could leave the rider a few centimeters
+// short of the route's finish line forever.
 export function timelineDistanceAt(timeline, elapsedSeconds) {
+  if (elapsedSeconds >= timeline.durationSeconds) return timeline.distanceMeters;
   const samples = timeline.samples;
   const index = timelineIndexAt(timeline, elapsedSeconds);
   const current = samples[index];

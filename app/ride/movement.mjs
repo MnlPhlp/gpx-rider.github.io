@@ -29,6 +29,7 @@ import {
   advanceReplay,
   finishReplay,
   pauseReplay,
+  replayAtEnd,
   replaySpeedKph,
   seekReplayToSeconds,
   syncReplayToProgress,
@@ -297,7 +298,11 @@ function tick(now) {
   updateRideUi();
   saveRideThrottled();
 
-  if (state.progressMeters >= totalDistance) {
+  // A replay is also finished once its playhead reaches the recording's end,
+  // even if rounding left its distance a hair short of the route total.
+  const replayFinished = state.replay.playing && !state.pedaling && replayAtEnd();
+  if (state.progressMeters >= totalDistance || replayFinished) {
+    state.progressMeters = totalDistance;
     state.simulating = false;
     const wasReplaying = state.replay.playing;
     finishReplay();

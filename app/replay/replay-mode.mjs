@@ -132,6 +132,17 @@ export function advanceReplay(elapsedSeconds) {
   syncReplayScrubbers();
 }
 
+// The playhead has reached the end of the recording. The movement loop's
+// finish check asks this as well as comparing distances: the recording's
+// total and the route's total are the same haversine sum on a fresh load,
+// but a restored ride (route coordinates rounded by saveRide, timeline
+// samples rounded by serializeTimeline) can disagree by centimeters either
+// way, and a replay whose playhead is at its end is finished regardless.
+export function replayAtEnd() {
+  const replay = state.replay;
+  return Boolean(replay.timeline) && replay.elapsedSeconds >= replay.timeline.durationSeconds;
+}
+
 // The movement loop reached the end of the route while replaying: the
 // replay is over (the finish orbit is the loop's own business).
 export function finishReplay() {

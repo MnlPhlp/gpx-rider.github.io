@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "GPX Rider",
-      "runtimeExecutable": "/opt/homebrew/bin/python3",
-      "runtimeArgs": ["scripts/dev_server.py", "5174", "127.0.0.1"],
-      "port": 5174
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["scripts/dev_server.py", "5173", "127.0.0.1"],
+      "port": 5173
     }
   ]
 }

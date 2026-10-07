@@ -148,3 +148,15 @@ test("serialization round-trips the timeline", () => {
   assert.equal(deserializeTimeline(null), null);
   assert.equal(deserializeTimeline({ samples: [[0, 0]], points: [] }), null);
 });
+
+test("the playhead at the ride's end reports the exact total distance, even after a round-trip", () => {
+  // Samples at odd positions so the cumulative distance is not a multiple of
+  // the 0.1 m serialization rounding — the ride must still end at the route's
+  // exact total, or the movement loop's finish check never fires.
+  const samples = northSamples(5).map((sample, i) => ({ ...sample, lat: 50 + i * 0.000091234 }));
+  const timeline = buildRideTimeline(samples, OPTIONS);
+  assert.equal(timelineDistanceAt(timeline, timeline.durationSeconds), timeline.distanceMeters);
+  const restored = deserializeTimeline(JSON.parse(JSON.stringify(serializeTimeline(timeline))));
+  assert.equal(timelineDistanceAt(restored, restored.durationSeconds), restored.distanceMeters);
+  assert.equal(timelineDistanceAt(restored, restored.durationSeconds + 5), restored.distanceMeters);
+});
