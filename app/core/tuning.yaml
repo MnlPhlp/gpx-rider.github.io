@@ -557,12 +557,25 @@ terrain_tiles:
 # with distance from the road, mountains where the route climbs high, forests,
 # fields, lakes, rock and snow. The route line, rider marker, beacons and every
 # HUD overlay are the same as on the Google map. Needs no API key and loads no
-# map imagery. Changes take effect on reload (or on the next route load for the
-# terrain shape).
+# map imagery (the real-terrain styles fetch public elevation tiles).
 virtual_world:
   # Default for the "Map rendering" select: "google" (photorealistic 3D tiles)
-  # or "virtual" (this synthetic world).
+  # or the id of one of the styles below.
   default_renderer: "google"
+
+  # The virtual world styles offered in the side panel's Map rendering select
+  # (under "Virtual world"), in order. Each combines a look (`theme`, one of
+  # `themes` below) with a ground source (`terrain`): "route" synthesizes the
+  # landscape from the route's own elevations only; "real" shapes it from real
+  # elevation data (free public Mapzen Terrarium tiles on AWS Open Data, the
+  # same as the online-terrain camera setting — requested for the route's area
+  # only while such a style is shown). Add a theme + a line here to offer a new
+  # style; the id is what Settings persist.
+  styles:
+    - { id: "virtual", label: "Natural landscape", theme: "nature", terrain: "route" }
+    - { id: "virtual-real", label: "Natural landscape · real terrain", theme: "nature", terrain: "real" }
+    - { id: "neon", label: "Neon grid", theme: "neon", terrain: "route" }
+    - { id: "neon-real", label: "Neon grid · real terrain", theme: "neon", terrain: "real" }
 
   # The height field (world-terrain.mjs).
   terrain:
@@ -607,6 +620,30 @@ virtual_world:
     empty_elevation_meters: 500
     # Lakes fill hollows this far below the route's lowest point.
     water_below_route_meters: 15
+
+    # Real-terrain styles (world-dem.mjs, world-terrain.mjs#sampleReal).
+    real:
+      # Elevation tiles: the finest zoom up to max_zoom whose tile count for
+      # the world's area fits max_tiles (zoom 13 ≈ 13 m per pixel in the Alps,
+      # 12 ≈ 26 m). Each tile is ~100 KB.
+      max_zoom: 13
+      max_tiles: 100
+      # The road bed stays at the GPX elevation and eases into the real ground
+      # over this distance beyond road_half_width_meters (cuttings and
+      # embankments where GPX and terrain data disagree).
+      road_blend_meters: 25
+      # Fine detail noise on top of the elevation grid, ramping in away from
+      # the road over detail_ramp_meters.
+      detail_meters: 3
+      detail_feature_meters: 120
+      detail_ramp_meters: 60
+      # Sea level for the water plane (the data carries bathymetry), kept at
+      # least water_below_route_meters below the route.
+      sea_level_meters: 0
+      water_below_route_meters: 3
+      # Elevations where meadows turn into alpine pasture (ground colors).
+      alpine_from_meters: 1700
+      alpine_full_meters: 2300
 
     relief:
       # Base wavelength of rolling hills, and the number of noise octaves.
@@ -695,13 +732,59 @@ virtual_world:
     max_inflight: 4
 
   # The look of the scene (world-scene.mjs).
+  # Looks (world-themes.mjs). `terrain_style` picks the ground rendering:
+  # "biome" = lit ground with the surface colors above, "neon" = dark ground
+  # with glowing grid and contour lines (the `neon` block). `unlit` draws the
+  # road with flat, full-brightness colors (glowing edge lines).
+  themes:
+    nature:
+      terrain_style: "biome"
+      trees: true
+      unlit: false
+      sky_top: "#3f7fd4"
+      sky_horizon: "#cfe1f2"
+      ground_haze: "#b9c9d6"
+      sun_glow: 1
+      fog_scale: 1
+      water: "#3f7396"
+      water_opacity: 0.93
+      horizon_ground: "#55703f"
+      road: "#4a4a4f"
+      road_edge: "#e9e7df"
+      road_embankment: "#8a806c"
+    neon:
+      terrain_style: "neon"
+      trees: false
+      unlit: true
+      sky_top: "#020109"
+      sky_horizon: "#2a0b47"
+      ground_haze: "#14062a"
+      sun_glow: 0
+      fog_scale: 0.7
+      water: "#03101f"
+      water_opacity: 0.95
+      horizon_ground: "#05030c"
+      road: "#06070c"
+      road_edge: "#22f3ff"
+      road_embankment: "#0b0f24"
+      neon:
+        # Ground gradient from the world's lowest to highest elevation, lit
+        # softly so the relief still reads.
+        ground_low: "#050816"
+        ground_high: "#1a0b33"
+        # A world-aligned grid and elevation contour lines, each with a sharp
+        # core and a soft glow; both fade out where they would shimmer at a
+        # distance.
+        grid: "#18e4ff"
+        grid_spacing_meters: 100
+        contour: "#ff2bd6"
+        contour_spacing_meters: 50
+        glow: 0.45
+
   scene:
-    sky_top: "#3f7fd4"
-    sky_horizon: "#cfe1f2"
-    ground_haze: "#b9c9d6"
-    water: "#3f7396"
-    road: "#4a4a4f"
     road_width_meters: 5
+    # Painted edge lines along the asphalt (theme road_edge color), meters.
+    road_edge_width_meters: 0.2
     # The road is a solid strip, not a flat ribbon: its top floats
     # road_lift_meters above the bed, and its sides slope down and out as an
     # embankment (embankment_depth below the top, spreading
@@ -710,7 +793,6 @@ virtual_world:
     road_lift_meters: 0.25
     road_embankment_depth_meters: 6
     road_embankment_spread_meters: 4
-    road_embankment: "#8a806c"
     # Depth pull toward the camera for the road and the rider marker, as a
     # fraction of view distance (see line_depth_pull): coarse distant terrain
     # tiles can sit a little above the true ground, and this margin grows with

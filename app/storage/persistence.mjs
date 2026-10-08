@@ -66,6 +66,7 @@ import {
   RIDE_SAVE_THROTTLE_MS,
   SCREENSHOT_WIDTH_MAX,
   SCREENSHOT_WIDTH_MIN,
+  VIRTUAL_WORLD,
 } from "../core/tuning.mjs";
 
 const SETTINGS_STORAGE_KEY = "gpx-rider:settings";
@@ -218,7 +219,7 @@ export function restoreSettings() {
     state.routeGradeColorsEnabled = settings.routeGradeColorsEnabled;
   }
 
-  if (settings?.mapRenderer === "google" || settings?.mapRenderer === "virtual") {
+  if (settings?.mapRenderer === "google" || VIRTUAL_WORLD.styles.some((style) => style.id === settings?.mapRenderer)) {
     state.mapRenderer = settings.mapRenderer;
   }
 

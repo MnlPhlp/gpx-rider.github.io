@@ -24,6 +24,11 @@ function mix(out, color, amount) {
   out[2] += (color[2] - out[2]) * t;
 }
 
+// Mix toward a blend of two colors (t = 0 → a, 1 → b).
+function mixPair(out, a, b, t, amount) {
+  mix(out, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t], amount);
+}
+
 export function createSurface(terrain, config) {
   const palette = Object.fromEntries(Object.entries(config.colors).map(([name, hex]) => [name, hexToLinear(hex)]));
   const forestNoise = createNoise2D(terrain.seed ^ 0x51ed270b);
@@ -57,14 +62,16 @@ export function createSurface(terrain, config) {
     // Farm fields: patchy, only on gentle low ground.
     const field = fbm(fieldNoise, x / config.field_patch_meters, z / config.field_patch_meters, 2);
     const fieldAmount = smoothstep(0.25, 0.35, field) * (1 - smoothstep(0.05, 0.12, slope)) * (1 - alpine);
-    mix(out, variation > 0.5 ? palette.field_a : palette.field_b, fieldAmount * 0.85);
+    // Blend the paired colors by the variation noise rather than switching per
+    // vertex: a hard switch draws jagged hatching on coarse tiles.
+    mixPair(out, palette.field_a, palette.field_b, variation, fieldAmount * 0.85);
 
     mix(out, palette.forest, forestDensity(x, z, height, slope, roadDistance) * 0.9);
 
     // Alpine pasture fades toward bare rock high up, rock on steep slopes.
     mix(out, palette.alpine, alpine * smoothstep(config.treeline_meters - 200, config.treeline_meters + 300, height) * 0.7);
     const rockSlope = smoothstep(config.rock_slope - 0.12, config.rock_slope + 0.08, slope + alpine * 0.08);
-    mix(out, variation > 0.5 ? palette.rock : palette.rock_dark, rockSlope);
+    mixPair(out, palette.rock, palette.rock_dark, variation, rockSlope);
 
     const snowline = config.snowline_meters + 150 * detailNoise(x / 400, z / 400);
     mix(out, palette.snow, smoothstep(snowline - 60, snowline + 60, height) * (1 - smoothstep(0.55, 0.75, slope)));

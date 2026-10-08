@@ -2,25 +2,33 @@
 // tiles the camera needs (closest first, a few in flight at once), turns the
 // arrays it returns into three.js meshes with instanced trees, shows the LOD
 // display set (falling back to a coarser loaded ancestor while finer tiles
-// build), and evicts least-recently-used tiles past the cache cap.
+// build), and evicts least-recently-used tiles past the cache cap. For a
+// real-terrain style it forwards the elevation tiles the worker loaded
+// (`onDem`), so the main thread can shape its ground from the same data.
 
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 import { baseNodes, createQuadtree, resolveDisplay, selectLeaves } from "./world-tiles.mjs";
 
-export function createTileManager({ scene, config, onTileReady }) {
+// `style` is the { theme, terrain } entry from virtual_world.styles, `theme`
+// its resolved look, `terrainMaterial` the theme's ground material
+// (world-themes.mjs), and `demBaseUrl` the Terrarium tile source.
+export function createTileManager({ scene, config, style, theme, terrainMaterial, demBaseUrl, onTileReady, onDem }) {
   const tilesConfig = config.tiles;
   const root = new THREE.Group();
   root.name = "virtual-world-terrain";
   scene.add(root);
 
-  const terrainMaterial = new THREE.MeshLambertMaterial({ vertexColors: true });
   const treeMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   const treeGeometries = [coniferGeometry(), broadleafGeometry()];
 
   const worker = new Worker(new URL("./world-tile-worker.mjs", import.meta.url), { type: "module" });
-  worker.onmessage = ({ data }) => receiveTile(data);
+  worker.onmessage = ({ data }) => {
+    if (data.worldId !== worldId) return;
+    if (data.type === "dem") onDem(data.tiles);
+    else receiveTile(data);
+  };
   worker.onerror = (event) => console.error("[virtual-world] tile worker failed", event.message ?? event);
 
   let world = null;
@@ -48,7 +56,18 @@ export function createTileManager({ scene, config, onTileReady }) {
       worldId,
       route: route.map((p) => ({ lat: p.lat, lng: p.lng, ele: p.ele })),
       config,
+      terrain: style.terrain,
+      trees: theme.trees,
+      demBaseUrl,
     });
+  }
+
+  // The main thread's ground changed (real elevation arrived): the route
+  // detail boost reads it, so its cache starts over.
+  function setTerrain(terrain) {
+    if (!world) return;
+    world.terrain = terrain;
+    boostCache.clear();
   }
 
   // Tiles the route crosses refine more eagerly (see route_detail_boost).
@@ -108,8 +127,7 @@ export function createTileManager({ scene, config, onTileReady }) {
     return inflight.size > 0 || missing.length > 0;
   }
 
-  function receiveTile({ worldId: id, key, tile }) {
-    if (id !== worldId) return;
+  function receiveTile({ key, tile }) {
     inflight.delete(key);
     const group = new THREE.Group();
     group.position.set(tile.cx, 0, tile.cz);
@@ -193,12 +211,11 @@ export function createTileManager({ scene, config, onTileReady }) {
     for (const entry of cache.values()) disposeTile(entry);
     cache.clear();
     scene.remove(root);
-    terrainMaterial.dispose();
     treeMaterial.dispose();
     treeGeometries.forEach((geometry) => geometry.dispose());
   }
 
-  return { setWorld, update, dispose };
+  return { setWorld, setTerrain, update, dispose };
 }
 
 // Low-poly tree meshes with baked vertex colors (crown + trunk), ~1 m base

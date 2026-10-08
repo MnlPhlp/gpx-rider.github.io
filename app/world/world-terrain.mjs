@@ -85,7 +85,12 @@ export function resampleRouteLocal(route, projection, spacing) {
   return out;
 }
 
-export function createWorldTerrain(route, config) {
+// `dem` (optional, world-dem.mjs#createDem): real ground elevation. With it
+// the ground is the real terrain plus a little detail noise, the road bed
+// still pinned to the GPX and blended into the real ground beside the road
+// (config.real), and no relief is invented; wherever the DEM has no data
+// the route-only synthesis below takes over.
+export function createWorldTerrain(route, config, { dem = null } = {}) {
   const points = Array.isArray(route) ? route.filter((p) => Number.isFinite(Number(p?.lat)) && Number.isFinite(Number(p?.lng))) : [];
   const origin = points.length ? boundsCenter(points) : DEFAULT_ORIGIN;
   const projection = createWorldProjection(origin);
@@ -138,7 +143,12 @@ export function createWorldTerrain(route, config) {
   const backgroundWeight = config.background_weight / Math.pow(radius, power);
   const feature = relief.feature_meters;
   const bias = relief.valley_bias;
-  const waterLevel = minElevation - config.water_below_route_meters;
+  const real = config.real;
+  // With real ground, water is the sea (Terrarium carries bathymetry), kept
+  // below the route so a polder road below sea level stays dry.
+  const waterLevel = dem
+    ? Math.min(real.sea_level_meters, minElevation - real.water_below_route_meters)
+    : minElevation - config.water_below_route_meters;
 
   // Everything about the ground at (x, z), written into `out` (reused by hot
   // loops to avoid allocating): height, distance to the road, and the local
@@ -146,6 +156,11 @@ export function createWorldTerrain(route, config) {
   function sample(x, z, out = {}) {
     const near = segments.query(x, z, radius, halfWidth, power);
     const reg = regional.at(x, z);
+    if (dem) {
+      const geo = projection.toGeo(x, z);
+      const ground = dem.elevationAt(geo.lat, geo.lng);
+      if (ground !== null && ground !== undefined) return sampleReal(x, z, near, reg, ground, out);
+    }
     const blended = (near.sumWeightedElevation + backgroundWeight * reg.mean) / (near.sumWeight + backgroundWeight);
     // Inside the bed the ground is exactly the nearest road point's elevation
     // (the weighted blend averages neighboring segments and would sit a few
@@ -185,6 +200,24 @@ export function createWorldTerrain(route, config) {
     return out;
   }
 
+  // Real ground: the DEM plus fine detail noise the ~10–30 m grid lacks, the
+  // road bed at the GPX elevation, easing into the real ground over
+  // real.road_blend_meters (cuttings and embankments where the two differ).
+  function sampleReal(x, z, near, reg, ground, out) {
+    const distance = near.minDistance < radius ? near.minDistance : Math.max(radius, reg.distance);
+    const detailRamp = smoothstep(relief.road_clearance_meters, real.detail_ramp_meters, distance);
+    const detail = fbm(noise, x / real.detail_feature_meters, z / real.detail_feature_meters, 3) * real.detail_meters * detailRamp;
+    const natural = ground + detail;
+    const bed = near.minDistance < radius
+      ? 1 - smoothstep(halfWidth, halfWidth + real.road_blend_meters, near.minDistance)
+      : 0;
+    out.height = natural + (near.nearestElevation - natural) * bed;
+    out.roadDistance = distance;
+    out.amplitude = real.detail_meters * detailRamp;
+    out.alpine = smoothstep(real.alpine_from_meters, real.alpine_full_meters, out.height);
+    return out;
+  }
+
   const scratch = {};
   function heightAt(x, z) {
     return sample(x, z, scratch).height;
@@ -193,6 +226,7 @@ export function createWorldTerrain(route, config) {
   return {
     projection,
     seed,
+    realGround: Boolean(dem),
     bounds,
     extent,
     samples,

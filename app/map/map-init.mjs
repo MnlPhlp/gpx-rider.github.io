@@ -14,7 +14,7 @@ import { saveSettings } from "../storage/persistence.mjs";
 import { clearRouteFromMap, renderRoute } from "./route-render.mjs";
 import { openSettings } from "../settings/settings-ui.mjs";
 import { els, state, updateProgressLabel } from "../core/state.mjs";
-import { DEFAULT_MAP_FOV_DEGREES } from "../core/tuning.mjs";
+import { DEFAULT_MAP_FOV_DEGREES, VIRTUAL_WORLD } from "../core/tuning.mjs";
 
 // Deliberately localStorage, not storage.mjs: saving the key reloads the page
 // immediately, and only a synchronous write is guaranteed to survive that.
@@ -47,9 +47,10 @@ export function registerMinimapHud() {
 }
 
 export async function initMap() {
+  renderMapRendererOptions();
   els.mapRendererSelect.value = state.mapRenderer;
   const apiKey = resolveMapsApiKey();
-  if (!apiKey && state.mapRenderer !== "virtual") {
+  if (!apiKey && !virtualWorldStyle(state.mapRenderer)) {
     updateProgressLabel("Add your Google Maps API key in Settings (⚙, top right) to load the map, or switch Map rendering to a virtual world.");
     // First run: the key input lives in the settings dialog's Data &
     // storage panel, so open the dialog on that panel.
@@ -65,7 +66,7 @@ export async function initMap() {
       initMinimap();
     } catch (error) {
       console.error(error);
-      if (state.mapRenderer !== "virtual") {
+      if (!virtualWorldStyle(state.mapRenderer)) {
         updateProgressLabel("Photorealistic 3D Maps did not load. Check that the 3D Maps feature is enabled for your Google API key.");
         return;
       }
@@ -80,20 +81,34 @@ export async function initMap() {
 // The 3D map for the chosen renderer, mounted into #map with `camera`.
 async function createMainMap(camera) {
   try {
-    if (state.mapRenderer === "virtual") await initVirtualWorldMap(camera);
+    const style = virtualWorldStyle(state.mapRenderer);
+    if (style) await initVirtualWorldMap(camera, style);
     else await initGooglePhotorealistic3DMap(camera);
     bindManualCameraCapture();
   } catch (error) {
     console.error(error);
-    updateProgressLabel(state.mapRenderer === "virtual"
+    updateProgressLabel(virtualWorldStyle(state.mapRenderer)
       ? "The virtual world could not start. This browser may not support WebGL."
       : "Photorealistic 3D Maps did not load. Check that the 3D Maps feature is enabled for your Google API key.");
   }
 }
 
+// The virtual_world.styles entry for a Map rendering choice, or null for
+// Google's photorealistic map.
+export function virtualWorldStyle(renderer) {
+  return VIRTUAL_WORLD.styles.find((style) => style.id === renderer) ?? null;
+}
+
+// The select's "Virtual world" group lists the styles from tuning.yaml.
+function renderMapRendererOptions() {
+  const group = els.mapRendererSelect.querySelector("optgroup");
+  group.replaceChildren(...VIRTUAL_WORLD.styles.map((style) => new Option(style.label, style.id)));
+}
+
 // The side panel's Map rendering select: persist the choice and swap the map.
 export function updateMapRendererFromControl() {
-  const renderer = els.mapRendererSelect.value === "virtual" ? "virtual" : "google";
+  const value = els.mapRendererSelect.value;
+  const renderer = virtualWorldStyle(value) ? value : "google";
   if (renderer === state.mapRenderer) return;
   state.mapRenderer = renderer;
   saveSettings();
@@ -104,7 +119,8 @@ export function updateMapRendererFromControl() {
 // the camera where it is: the old map's overlays are taken down, the new map
 // takes the same pose, and the route, rider and ghost are drawn onto it.
 export async function applyMapRenderer() {
-  const wanted = state.mapRenderer === "virtual" ? "virtual" : "google3d";
+  const style = virtualWorldStyle(state.mapRenderer);
+  const wanted = style ? "virtual" : "google3d";
   if (!state.map) {
     // No map yet (e.g. no API key at boot): the new choice may now work.
     await initMap();
@@ -114,7 +130,11 @@ export async function applyMapRenderer() {
     }
     return;
   }
-  if (state.mapProvider === wanted) return;
+  if (state.mapProvider === wanted) {
+    // Virtual to virtual: same map, new look or ground source.
+    if (style) state.map.setWorldStyle(style);
+    return;
+  }
   if (wanted === "google3d" && !window.google?.maps) {
     // Google was never loaded (no key, or the virtual world needed none):
     // keep the current map and point at the key setting.
@@ -181,7 +201,7 @@ function initMinimap() {
 
 // The synthetic three.js world (world/virtual-map3d.mjs), imported on demand so
 // the Google renderer never downloads three.js. Its library mirrors maps3d.
-async function initVirtualWorldMap(camera) {
+async function initVirtualWorldMap(camera, style) {
   const { loadVirtualMaps3d } = await import("../world/virtual-map3d.mjs");
   state.maps3d = loadVirtualMaps3d();
   const { Map3DElement, MapMode } = state.maps3d;
@@ -190,6 +210,7 @@ async function initVirtualWorldMap(camera) {
   mapEl.replaceChildren();
   state.map = new Map3DElement({
     ...camera,
+    worldStyle: style,
     mode: state.mapLabelsEnabled ? MapMode.HYBRID : MapMode.SATELLITE,
   });
   mapEl.append(state.map);

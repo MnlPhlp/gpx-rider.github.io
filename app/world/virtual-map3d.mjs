@@ -13,7 +13,7 @@
 import * as THREE from "three";
 
 import { cameraEyePosition } from "../camera/camera.mjs";
-import { VIRTUAL_WORLD } from "../core/tuning.mjs";
+import { TERRAIN_TILE_BASE_URL, VIRTUAL_WORLD } from "../core/tuning.mjs";
 import { bindCameraGestures } from "./world-gestures.mjs";
 import { AltitudeMode, MapMode, Model3DElement, Polygon3DElement, Polyline3DElement } from "./world-overlays.mjs";
 import { createWorldScene } from "./world-scene.mjs";
@@ -31,6 +31,8 @@ class VirtualMap3DElement extends HTMLElement {
     this._roll = 0;
     this._fov = 35;
     this.mode = options.mode ?? MapMode.SATELLITE;
+    // The virtual_world.styles entry drawn: { id, theme, terrain }.
+    this.worldStyle = options.worldStyle ?? VIRTUAL_WORLD.styles[0];
     this.overlays = new Set();
     this.frameRequested = false;
     this.renderer = null;
@@ -70,10 +72,41 @@ class VirtualMap3DElement extends HTMLElement {
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.camera = new THREE.PerspectiveCamera(this._fov, 1, VIRTUAL_WORLD.scene.near_meters, VIRTUAL_WORLD.scene.far_meters);
     this.camera.rotation.order = "YXZ";
-    this.world = createWorldScene(VIRTUAL_WORLD, { onTileReady: () => this.requestRender() });
+    this.world = this.createWorld();
     this.world.setRoute([]);
     this.resizeObserver = new ResizeObserver(() => this.requestRender());
     bindCameraGestures(this);
+  }
+
+  createWorld() {
+    return createWorldScene(VIRTUAL_WORLD, {
+      style: this.worldStyle,
+      demBaseUrl: TERRAIN_TILE_BASE_URL,
+      onTileReady: () => this.requestRender(),
+      // Real elevation arrived: everything placed on the ground re-seats.
+      onTerrainChanged: () => {
+        for (const overlay of this.overlays) overlay.dirty = true;
+        this.requestRender();
+      },
+    });
+  }
+
+  // Switch to another virtual_world.styles entry in place: a fresh scene in
+  // the new look (and ground source) with the same camera, route and overlays.
+  setWorldStyle(style) {
+    if (!style || style.id === this.worldStyle?.id) return;
+    this.worldStyle = style;
+    if (!this.renderer) return;
+    const previous = this.world;
+    for (const overlay of this.overlays) previous.scene.remove(overlay.object);
+    previous.dispose();
+    this.world = this.createWorld();
+    for (const overlay of this.overlays) {
+      this.world.scene.add(overlay.object);
+      overlay.dirty = true;
+    }
+    this.world.setRoute(Array.isArray(this.worldRoute) ? this.worldRoute : []);
+    this.requestRender();
   }
 
   // --- Map3DElement camera properties ---------------------------------------

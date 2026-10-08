@@ -12,6 +12,8 @@ import {
   smoothPolyline,
 } from "../app/world/world-road.mjs";
 import { createWorldProjection, createWorldTerrain, resampleRouteLocal } from "../app/world/world-terrain.mjs";
+import { createDem, demTilesForBox, globalPixel } from "../app/world/world-dem.mjs";
+import { tileForLngLat } from "../app/map/terrain-tiles-math.mjs";
 import {
   baseNodes,
   buildTileArrays,
@@ -325,4 +327,68 @@ test("road cross-sections never fold on a tight hairpin", () => {
     }
   }
   assert.ok(frames.some((f) => Number.isFinite(f.maxLeft) || Number.isFinite(f.maxRight)), "the bend is clamped");
+});
+
+// Fake Terrarium tiles whose elevation is a plane in global pixel space:
+// elevation = 0.5·gx + 0.25·gy (meters), so bilinear sampling is exact.
+function planeTiles(box, zoom) {
+  return demTilesForBox(box, { maxZoom: zoom, maxTiles: 64, tileSize: 16 }).map((tile) => {
+    const data = new Float32Array(16 * 16);
+    for (let py = 0; py < 16; py++) {
+      for (let px = 0; px < 16; px++) {
+        data[py * 16 + px] = 0.5 * (tile.x * 16 + px + 0.5) + 0.25 * (tile.y * 16 + py + 0.5);
+      }
+    }
+    return { ...tile, size: 16, data };
+  });
+}
+
+test("globalPixel agrees with the online-terrain tile math", () => {
+  const p = globalPixel(50.7333, 15.0075, 12, 256);
+  const tile = tileForLngLat(50.7333, 15.0075, 12, 256);
+  assert.equal(Math.floor(p.x / 256), tile.x);
+  assert.equal(Math.floor(p.y / 256), tile.y);
+  assert.equal(Math.floor(p.x) - tile.x * 256, tile.px);
+});
+
+test("demTilesForBox picks the finest zoom within the tile budget", () => {
+  const box = { south: 46.4, west: 10.3, north: 46.6, east: 10.6 };
+  const tiles = demTilesForBox(box, { maxZoom: 14, maxTiles: 20, tileSize: 256 });
+  assert.ok(tiles.length <= 20 && tiles.length > 0);
+  const zoom = tiles[0].z;
+  assert.ok(tiles.every((tile) => tile.z === zoom));
+  const finer = demTilesForBox(box, { maxZoom: zoom + 1, maxTiles: 1e6, tileSize: 256 });
+  assert.ok(finer.length > 20, "one zoom finer would exceed the budget");
+});
+
+test("createDem interpolates bilinearly across tile borders", () => {
+  const box = { south: 46.45, west: 10.40, north: 46.55, east: 10.50 };
+  const dem = createDem(planeTiles(box, 10));
+  for (const [lat, lng] of [[46.5, 10.45], [46.47, 10.41], [46.53, 10.49]]) {
+    const p = globalPixel(lat, lng, 10, 16);
+    const expected = 0.5 * p.x + 0.25 * p.y;
+    assert.ok(Math.abs(dem.elevationAt(lat, lng) - expected) < 1e-3);
+  }
+  assert.equal(dem.elevationAt(10, 10), null, "no data outside the loaded tiles");
+  assert.equal(createDem([null]), null);
+  // A tile whose size disagrees with its data is rejected, not misread.
+  assert.equal(createDem([{ z: 10, x: 0, y: 0, size: 0, data: new Float32Array(256) }]), null);
+});
+
+test("real terrain: road bed at the GPX elevation, real ground away from it", () => {
+  const route = climbRoute();
+  const box = { south: 46.3, west: 7.8, north: 46.7, east: 8.25 };
+  // A DEM 40 m off from the GPX everywhere near the route.
+  const tiles = planeTiles(box, 9).map((tile) => ({ ...tile, data: tile.data.map(() => 700) }));
+  const dem = createDem(tiles);
+  const config = VIRTUAL_WORLD.terrain;
+  const terrain = createWorldTerrain(route, config, { dem });
+  assert.ok(terrain.realGround);
+  for (const point of route.slice(1, -1)) {
+    assert.ok(Math.abs(terrain.heightAtGeo(point.lat, point.lng) - point.ele) < 0.5, "road on the GPX");
+  }
+  const far = terrain.sample(4000, 4000, {});
+  assert.ok(far.roadDistance > config.real.road_blend_meters * 4);
+  assert.ok(Math.abs(far.height - 700) <= config.real.detail_meters + 1e-6, `far ground ${far.height} follows the DEM`);
+  assert.ok(terrain.waterLevel <= config.real.sea_level_meters);
 });
