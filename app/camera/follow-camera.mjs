@@ -60,7 +60,7 @@ import {
 } from "../core/tuning.mjs";
 
 export function updateMapCamera() {
-  if (state.mapProvider !== "google3d" || !state.route.length || !state.map) return;
+  if (!state.mapProvider || !state.route.length || !state.map) return;
   if (state.userInteracting || state.cameraMode === "manual") return;
   // An animated overview (orbit / fly-by / fly-over) or a transition-arc
   // flight writes the camera directly every frame from its own loop; the
@@ -380,8 +380,11 @@ function computeTerrainLiftTarget(camera, centerAltitude) {
 // route-only estimate whenever a tile has not loaded yet or is disabled.
 function terrainElevationForSample(samplePoint) {
   const routeEle = maxElevationNear(state.route, samplePoint, TERRAIN_SAMPLE_RADIUS_METERS);
-  if (!state.terrainTilesEnabled) return routeEle;
-  const tileEle = terrainElevationAt(samplePoint.lat, samplePoint.lng);
+  // In the virtual world the synthetic ground is the terrain on screen (real
+  // elevation tiles would describe hills that are not drawn).
+  const tileEle = state.mapProvider === "virtual"
+    ? state.map.groundElevationAt(samplePoint.lat, samplePoint.lng)
+    : state.terrainTilesEnabled ? terrainElevationAt(samplePoint.lat, samplePoint.lng) : null;
   if (tileEle === null) return routeEle;
   return routeEle === null ? tileEle : Math.max(routeEle, tileEle);
 }
@@ -392,6 +395,7 @@ function terrainElevationForSample(samplePoint) {
 // this is tiles-only: null when online terrain is off or a tile has not loaded
 // yet, and the planner falls back to its route-based footprint estimate.
 export function onlineTerrainElevationAt(lat, lng) {
+  if (state.mapProvider === "virtual") return state.map.groundElevationAt(lat, lng);
   if (!state.terrainTilesEnabled) return null;
   return terrainElevationAt(lat, lng);
 }

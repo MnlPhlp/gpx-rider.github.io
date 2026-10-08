@@ -135,7 +135,7 @@ export function cancelCameraTransition() {
 function canTransition() {
   return Boolean(
     CAMERA_TRANSITION.enabled &&
-    state.mapProvider === "google3d" &&
+    Boolean(state.mapProvider) &&
     state.route.length >= 2 &&
     state.map,
   );

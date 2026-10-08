@@ -72,6 +72,7 @@ import {
   toggleProfileSeries,
   updateDisplaySettingsFromControls,
   updateGradeIntervalFromControl,
+  updateMapRendererFromControl,
   updateRenderingSettingsFromControls,
   updateRiderProfileFromControls,
   updateScreenshotSettingsFromControls,
@@ -266,6 +267,7 @@ function bindEvents() {
   els.terrainClearanceInput.addEventListener("input", updateRenderingSettingsFromControls);
   els.terrainTilesInput.addEventListener("change", updateRenderingSettingsFromControls);
   els.routeGradeColorsInput.addEventListener("change", updateRenderingSettingsFromControls);
+  els.mapRendererSelect.addEventListener("change", updateMapRendererFromControl);
   els.resetRenderingBtn.addEventListener("click", resetRenderingToDefaults);
   els.streetImageryInput.addEventListener("change", updateStreetImagerySettingsFromControls);
   els.mapillaryUsernameInput.addEventListener("change", updateStreetImagerySettingsFromControls);

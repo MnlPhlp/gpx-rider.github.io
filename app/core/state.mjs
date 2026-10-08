@@ -25,6 +25,7 @@ import {
   DEFAULT_HUD_FIELD_ORDER,
   DEFAULT_HUD_VISIBLE_COUNT,
   DEFAULT_MAP_LABELS_ENABLED,
+  DEFAULT_MAP_RENDERER,
   DEFAULT_MAX_HEART_RATE_BPM,
   DEFAULT_OVERVIEW_MODE,
   DEFAULT_RESTING_HEART_RATE_BPM,
@@ -76,8 +77,13 @@ export const state = {
   riderDot: null,
   riderBeacon: null,
   map: null,
+  // Which engine draws the 3D map: "google3d" (photorealistic tiles) or
+  // "virtual" (the synthetic world in world/). `maps3d` is that engine's
+  // library — Google's maps3d or its virtual stand-in, same API either way.
   mapProvider: null,
   maps3d: null,
+  // The user's renderer choice (persisted): "google" | "virtual".
+  mapRenderer: DEFAULT_MAP_RENDERER,
   minimapMap: null,
   minimapPaths: [],
   minimapMarker: null,
@@ -372,6 +378,7 @@ export const els = {
   terrainTilesInput: document.querySelector("#terrainTilesInput"),
   terrainAttribution: document.querySelector("#terrainAttribution"),
   routeGradeColorsInput: document.querySelector("#routeGradeColorsInput"),
+  mapRendererSelect: document.querySelector("#mapRendererSelect"),
   resetRenderingBtn: document.querySelector("#resetRenderingBtn"),
   connectBtn: document.querySelector("#connectBtn"),
   connectHrBtn: document.querySelector("#connectHrBtn"),

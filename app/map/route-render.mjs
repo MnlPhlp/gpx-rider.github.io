@@ -62,6 +62,8 @@ export function renderRoute() {
   }
 
   clearRouteFromMap();
+  // The virtual world builds its landscape from the route itself.
+  if (state.mapProvider === "virtual") state.map.setWorldRoute(state.route);
   const currentPoint = interpolateRoutePoint(state.route, state.progressMeters);
   renderGoogle3DRoute(currentPoint);
 }

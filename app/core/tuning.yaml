@@ -548,6 +548,165 @@ terrain_tiles:
   # terrain is on (the compiled SRTM/USGS sources ask for a credit line).
   attribution: "Elevation data courtesy of Mapzen / AWS Open Data"
 
+# --- Virtual world renderer ----------------------------------------------------
+#
+# An alternative to Google's photorealistic 3D map (Settings › Rendering › Map
+# rendering): a synthetic landscape built from nothing but the route's own track
+# and elevations, rendered with three.js (app/world/). The road follows the GPX
+# exactly; everything around it is invented to look plausible — hills that grow
+# with distance from the road, mountains where the route climbs high, forests,
+# fields, lakes, rock and snow. The route line, rider marker, beacons and every
+# HUD overlay are the same as on the Google map. Needs no API key and loads no
+# map imagery. Changes take effect on reload (or on the next route load for the
+# terrain shape).
+virtual_world:
+  # Default for the "Map rendering" select: "google" (photorealistic 3D tiles)
+  # or "virtual" (this synthetic world).
+  default_renderer: "google"
+
+  # The height field (world-terrain.mjs).
+  terrain:
+    # Ground within this distance of the track sits exactly at the GPX
+    # elevation (the road bed).
+    road_half_width_meters: 3.5
+    # The track is resampled to at most this spacing before shaping the ground.
+    resample_meters: 20
+    # Route segments within this radius pull the ground toward their own
+    # elevation (inverse-distance weighted, so switchback legs blend into one
+    # hillside). Larger = smoother valleys, slower tile builds.
+    influence_radius_meters: 600
+    # Inverse-distance power of that pull: higher keeps the ground near each
+    # leg flatter, lower blends neighboring legs more.
+    weight_power: 2
+    # Weight of the regional trend against the route's pull at the edge of the
+    # influence radius (1 = equal).
+    background_weight: 1
+    # Resolution and smoothing of the regional trend raster (the smoothed route
+    # elevation that shapes the land far from the road).
+    regional_cells: 96
+    regional_sigma_meters: 1500
+    # Scenery margin around the route's footprint: the larger of the two.
+    margin_meters: 9000
+    margin_fraction: 0.6
+    # Ground elevation used before any route is loaded.
+    empty_elevation_meters: 500
+    # Lakes fill hollows this far below the route's lowest point.
+    water_below_route_meters: 15
+
+    relief:
+      # Base wavelength of rolling hills, and the number of noise octaves.
+      feature_meters: 2600
+      octaves: 6
+      # Ridged mountains: base wavelength (keep it several times the relief
+      # amplitude or peaks turn into spikes), how much each finer octave adds,
+      # and crest sharpness (2 = knife edge, 1 = rounded).
+      mountain_feature_meters: 6000
+      ridge_gain: 0.45
+      ridge_sharpness: 1.3
+      # Relief amplitude = the route's local elevation spread × this factor,
+      # clamped to [min, max]. Flat routes get gentle hills, alpine ones peaks.
+      local_relief_factor: 1.8
+      min_amplitude_meters: 30
+      max_amplitude_meters: 800
+      # No relief within road_clearance of the road; full relief at ramp_meters.
+      road_clearance_meters: 8
+      ramp_meters: 900
+      # Backdrop mountains: relief grows by up to far_boost× toward
+      # far_ramp_meters from the route.
+      far_boost: 1.5
+      far_ramp_meters: 9000
+      # Upward bias of the relief noise (0 = symmetric hills and hollows); a
+      # positive bias puts the road on valley floors, as real roads usually are.
+      valley_bias: 0.35
+      # Relief amplitude where rolling hills start turning into ridged mountains,
+      # and where they are fully alpine.
+      alpine_start_meters: 250
+      alpine_full_meters: 700
+
+  # Ground cover (world-surface.mjs).
+  surface:
+    treeline_meters: 2000
+    snowline_meters: 2700
+    # Slope (1 - normal.y) where bare rock takes over.
+    rock_slope: 0.32
+    # Gravel shoulder along the road, meters from the track's center.
+    shoulder_meters: 6
+    forest_patch_meters: 1100
+    # Higher = less forest (fBm threshold, roughly -0.5..0.5).
+    forest_threshold: 0.0
+    field_patch_meters: 420
+    colors:
+      meadow_light: "#8db45a"
+      meadow_dark: "#5f8f3e"
+      field_a: "#c2b867"
+      field_b: "#93a24c"
+      forest: "#35592a"
+      alpine: "#8d9a6a"
+      rock: "#8f887c"
+      rock_dark: "#6c675f"
+      snow: "#f3f6f9"
+      sand: "#d2c497"
+      shoulder: "#a39880"
+    trees:
+      # Jittered tree lattice spacing; forest cells keep a tree with probability
+      # density × forest_fill, meadows with lone_tree_chance.
+      spacing_meters: 11
+      forest_fill: 0.85
+      lone_tree_chance: 0.025
+      road_clearance_meters: 7
+      conifer_share: 0.45
+      min_scale: 0.75
+      max_scale: 1.35
+
+  # Terrain level of detail (world-tiles.mjs, world-scene.mjs).
+  tiles:
+    # Grid segments per tile edge (each tile is (segments+1)² vertices).
+    segments: 32
+    # The smallest tile edge; with 32 segments, 200 m ≈ 6 m between vertices.
+    min_tile_meters: 200
+    # A tile splits while the camera is closer than split_factor × its edge.
+    split_factor: 2.2
+    # Tiles the route crosses split this much more eagerly, so the floating
+    # route line stays clear of coarse distant ground.
+    route_detail_boost: 1.8
+    # Skirt depth in grid steps (hides cracks between tiles of different detail).
+    skirt_factor: 3
+    # Coarse levels always kept loaded as a fallback while finer tiles build.
+    base_level: 2
+    # Trees only on tiles at most this large (= near the camera).
+    tree_max_tile_meters: 400
+    # Decoded tiles kept in memory (LRU); tile builds in flight at once.
+    max_cached_tiles: 500
+    max_inflight: 4
+
+  # The look of the scene (world-scene.mjs).
+  scene:
+    sky_top: "#3f7fd4"
+    sky_horizon: "#cfe1f2"
+    ground_haze: "#b9c9d6"
+    water: "#3f7396"
+    road: "#4a4a4f"
+    road_width_meters: 5
+    # Sun direction: compass bearing it shines from, and elevation above the
+    # horizon, in degrees.
+    sun_azimuth_degrees: 215
+    sun_elevation_degrees: 38
+    sun_intensity: 2.4
+    ambient_intensity: 1.1
+    # Exponential fog density at 1 km of view distance; it thins out with the
+    # camera's altitude so the overview still sees the whole route.
+    fog_density_per_km: 0.045
+    # Route-line depth pull toward the camera, as a fraction of view distance:
+    # keeps the floating line clear of ground that is slightly too coarse at a
+    # distance without letting it show through real ridges.
+    line_depth_pull: 0.004
+    # Route lines fade out within this distance of the camera: the line floats
+    # above the first-person eye and would smear up the screen overhead.
+    line_near_hide_meters: 12
+    # Camera clip range. The far plane also scales with altitude.
+    near_meters: 0.5
+    far_meters: 250000
+
 # --- Street-level imagery (Mapillary) ----------------------------------------
 #
 # Real street photos in the first-person view, where they exist. The app looks

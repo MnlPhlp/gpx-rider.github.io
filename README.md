@@ -33,6 +33,7 @@ It is built for people who want to:
 
 - **Bring any GPX track** — open a local file or choose a ready-to-ride route from the built-in gallery.
 - **Photorealistic 3D terrain** — follow elevated, grade-colored route lines through Google Photorealistic 3D Maps with a real 3D rider marker, beacon, minimap, and terrain-aware camera lift.
+- **Virtual world renderer** — prefer a stylized world, or have no Maps key? Switch **Settings › Rendering › Map rendering** to *Virtual world*: a landscape generated in the browser from nothing but the route's track and elevation — the road at its exact GPX height, hills and mountains rising away from it, forests, fields, lakes, rock and snow — with the same route line, rider marker, cameras, and HUD.
 - **Bluetooth trainer control** — connect an FTMS-compatible smart trainer, or a Tacx FE-C trainer (the wheel-on Flow/Vortex/Bushido/Genius, which predate FTMS), through Web Bluetooth. Trainer-reported speed advances the rider while route grade drives simulated resistance.
 - **Heart-rate support** — connect a standard Bluetooth heart-rate strap or use heart-rate data reported by the trainer.
 - **Route intelligence** — calculate distance, noise-filtered ascent and descent, grade, difficulty, terrain classification, sustained climbs, and smart ETA directly from the GPX data.
@@ -212,6 +213,18 @@ Keeping the camera above the ground needs to know where the ground actually is �
 
 The pure tile math (Web Mercator coordinates, Terrarium decode) lives in [`app/map/terrain-tiles-math.mjs`](app/map/terrain-tiles-math.mjs) and is unit-tested; the fetch/decode/cache machinery is in [`app/map/terrain-tiles.mjs`](app/map/terrain-tiles.mjs). Every knob — the tile source, zoom, cache size, and attribution — is documented under `terrain_tiles` in [`app/core/tuning.yaml`](app/core/tuning.yaml).
 
+### A virtual world from the route alone
+
+The optional virtual world renderer replaces Google's photorealistic map with a landscape synthesized from the GPX itself — no imagery, no elevation service, no key. It is a drop-in for Google's `maps3d` library rather than a second rendering path: a `<gpx-virtual-map-3d>` element with `Map3DElement`'s camera properties, plus three.js stand-ins for `Polyline3DElement`, `Polygon3DElement` and `Model3DElement`. Every camera driver, route line, marker, beacon and HUD overlay writes to it exactly as it writes to Google's map, so the two renderers can be swapped mid-ride.
+
+- **A height field pinned to the road.** Route segments near a point pull the ground toward their own elevation with inverse-distance (Shepard) weights; inside the road's half width the nearest segment dominates completely, so the road sits exactly at the GPX elevation, while two switchback legs blend into one hillside instead of a cliff between them.
+- **Relief that grows away from the road.** A Gaussian-smoothed raster of the route elevation sets the regional trend; seeded simplex fBm adds hills whose amplitude is zero on the road, ramps up with distance, and scales with how hilly the route is locally — turning into ridged mountains where the route climbs high. The noise is biased upward, so roads run along valley floors as real roads tend to. The seed comes from the route, so a route always gets the same world.
+- **Chunked LOD streamed off the main thread.** The terrain is a quadtree of tiles that split near the camera (and more eagerly where the route crosses, so the floating route line never sinks into coarse ground), built in a module Web Worker and shown with a fallback to a loaded ancestor while finer tiles arrive. Skirts hide cracks between tiles of different detail.
+- **Ground cover from the same field.** Per-vertex biome colors (meadow, fields, forest floor, alpine pasture, rock on steep slopes, snow above the snowline, lake shores, gravel road shoulders) and instanced low-poly trees on a global jittered lattice, so a tile split never moves a tree.
+- **One depth range from the handlebars to the horizon.** A logarithmic depth buffer covers a first-person eye half a meter off the road and mountains 50 km away; route lines get a small view-space pull toward the camera, which leaves their screen position and width unchanged but keeps them clear of slightly-too-coarse distant ground.
+
+The pure modules — [`world-noise.mjs`](app/world/world-noise.mjs), [`world-terrain.mjs`](app/world/world-terrain.mjs), [`world-surface.mjs`](app/world/world-surface.mjs), [`world-tiles.mjs`](app/world/world-tiles.mjs) — are unit-tested in [`tests/world.test.mjs`](tests/world.test.mjs); the three.js side is [`virtual-map3d.mjs`](app/world/virtual-map3d.mjs), [`world-scene.mjs`](app/world/world-scene.mjs), [`world-tile-manager.mjs`](app/world/world-tile-manager.mjs) and [`world-overlays.mjs`](app/world/world-overlays.mjs). Every knob is documented under `virtual_world` in [`app/core/tuning.yaml`](app/core/tuning.yaml).
+
 ### Street imagery frame matching
 
 Showing the right street photo for a moving rider is a matching problem, not a lookup — Mapillary knows where its images are, not where they sit along *your* route or which way you are riding. GPX Rider solves it client-side and provider-agnostically:
@@ -286,7 +299,7 @@ make run
 - the landing page at `http://127.0.0.1:5173/app/`;
 - the application at `http://127.0.0.1:5173/app/app.html`.
 
-Local development needs a Google Maps API key with the **Maps JavaScript API** and **Photorealistic 3D Maps** enabled. Save the key as a single line in the gitignored `.maps-api-key` file at the repository root, then run `make run`. The development server injects it into the served `app/config.mjs` response without modifying the file on disk. The `MAPS_API_KEY` environment variable is also supported and takes precedence. A Mapillary client token for the street imagery feature works the same way: `.mapillary-token` at the repository root, or the `MAPILLARY_TOKEN` environment variable.
+Local development of the photorealistic map needs a Google Maps API key with the **Maps JavaScript API** and **Photorealistic 3D Maps** enabled (the virtual world renderer runs without one, minus the minimap). Save the key as a single line in the gitignored `.maps-api-key` file at the repository root, then run `make run`. The development server injects it into the served `app/config.mjs` response without modifying the file on disk. The `MAPS_API_KEY` environment variable is also supported and takes precedence. A Mapillary client token for the street imagery feature works the same way: `.mapillary-token` at the repository root, or the `MAPILLARY_TOKEN` environment variable.
 
 Run the tests with:
 
@@ -323,6 +336,8 @@ The hosted application's Maps key is restricted to the GPX Rider domain. Self-ho
 
 When **online terrain** is enabled (on by default), the app anonymously fetches free public elevation tiles from the Mapzen/AWS Open Data bucket to sharpen the terrain-aware camera. The requests carry no keys, accounts, or ride data — only the map tile coordinates for the area you are riding, which Google's own 3D imagery already streams for the same area. It can be turned off in Settings › Rendering, in which case the camera falls back to route-only elevation and no tiles are ever requested.
 
+The **virtual world** renderer generates its landscape entirely in the browser from the loaded route; it requests no map imagery or elevation data at all.
+
 When **street imagery** is enabled (off by default), the app asks Mapillary (owned by Meta) for images in the map grid cells the loaded route passes through, then for the pose and mesh data of the photos it plays and the photos themselves — using the site's or your own client token. No ride data, settings, or account information is sent, and nothing is requested at all while the switch is off. Photos, meshes and route plans are cached in your browser's IndexedDB (Settings shows the size and clears it). Imagery is © its Mapillary contributors under CC BY-SA 4.0; the app credits each image on screen.
 
 ## Browser, hardware, and limitations
@@ -337,6 +352,7 @@ When **street imagery** is enabled (off by default), the app asks Mapillary (own
 - Heart rate comes from a paired strap or, as a fallback, the trainer's own heart-rate field.
 - Terrain avoidance uses the route's own elevation as a free offline floor and, when online terrain is enabled, augments it with free public Mapzen/AWS terrain tiles. With online terrain off (or before tiles load), it works best where the route itself follows the hillside.
 - Ride replay needs a file with timestamps: a FIT activity or a GPX whose points carry `<time>`. A planned GPX (no timestamps) loads as a normal route with nothing to replay. Video export needs Chrome or Edge (tab capture) and records in real time: the video's length, not the ride's, decides how long it takes, so pick a playback speed accordingly. The tab may be in the background meanwhile, but the browser window must stay open and not minimized. Strava activities cannot be fetched directly (their exports require your Strava login and the API requires server-side OAuth); the card opens Strava's export for you to save and open.
+- The virtual world is invented scenery: only the road follows the GPX (its track and elevation); the hills, forests, lakes, and mountains around it are synthesized to look plausible, not to match the real place. Without a Maps key it has no minimap, and switching a route rebuilds its landscape (a fraction of a second; terrain tiles then stream in around the camera).
 - Street imagery depends on what Mapillary's contributors have uploaded: coverage is partial (often excellent on famous climbs and in cities, sparse on remote roads), photos vary in age, season, and camera, and gaps show the 3D view. Photos are shown at Mapillary's 1024 px (2048 px for 360°) thumbnail size, the smooth moving-camera transition only works between photos of the same reconstruction (others cross-fade), and the first ride of a route scans and prepares it before playback starts on the road ahead.
 
 ## Tested hardware

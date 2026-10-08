@@ -218,6 +218,10 @@ export function restoreSettings() {
     state.routeGradeColorsEnabled = settings.routeGradeColorsEnabled;
   }
 
+  if (settings?.mapRenderer === "google" || settings?.mapRenderer === "virtual") {
+    state.mapRenderer = settings.mapRenderer;
+  }
+
   const terrainClearance = Number(settings?.terrainClearanceMeters);
   if (Number.isFinite(terrainClearance)) {
     state.terrainClearanceMeters = clamp(terrainClearance, Number(els.terrainClearanceInput.min), Number(els.terrainClearanceInput.max));
@@ -368,6 +372,7 @@ export function saveSettings() {
     cameraViewPreset: state.cameraViewPreset === "firstPerson" ? "firstPerson" : null,
     centerRider: state.centerRider,
     routeGradeColorsEnabled: state.routeGradeColorsEnabled,
+    mapRenderer: state.mapRenderer,
     beaconEnabled: state.beaconEnabled,
     beaconDiameterMeters: state.beaconDiameterMeters,
     beaconHeightMeters: state.beaconHeightMeters,

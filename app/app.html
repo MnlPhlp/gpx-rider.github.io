@@ -797,6 +797,17 @@
           <section class="settings-panel" data-settings-panel="rendering" hidden>
             <div class="setting-row">
               <div class="setting-row-text">
+                <span class="setting-row-label">Map rendering</span>
+                <span class="setting-row-hint">virtual world: a landscape generated from the route's track and elevation, no imagery or API key needed</span>
+              </div>
+              <select id="mapRendererSelect">
+                <option value="google">Google photorealistic 3D</option>
+                <option value="virtual">Virtual world</option>
+              </select>
+            </div>
+            <div class="settings-divider"></div>
+            <div class="setting-row">
+              <div class="setting-row-text">
                 <span class="setting-row-label">Color route by grade</span>
                 <span class="setting-row-hint">green descents through amber climbs to red steep ramps</span>
               </div>
@@ -1174,6 +1185,16 @@ mapillary_tools video_process_and_upload ride.mp4 --geotag_source gpx --geotag_s
       </div>
     </dialog>
 
+    <!-- three.js (vendored, MIT) for the virtual world renderer; only loaded
+         when that renderer is chosen (map/map-init.mjs imports it on demand). -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three/build/three.module.js",
+          "three/addons/": "./vendor/three/examples/jsm/"
+        }
+      }
+    </script>
     <script src="./app.js" type="module"></script>
   </body>
 </html>

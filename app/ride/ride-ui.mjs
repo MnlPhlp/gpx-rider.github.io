@@ -54,7 +54,7 @@ export function updateRideUi(options = {}) {
     removeRiderMarker();
   } else if (state.riderDot) {
     updateRiderDot(point);
-  } else if (state.mapProvider === "google3d" && state.map) {
+  } else if (state.mapProvider && state.map) {
     renderRiderDot(point);
   }
   updateGhostMarker();
