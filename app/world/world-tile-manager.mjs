@@ -9,12 +9,16 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
+import { BUILDING_STRIDE } from "./world-city.mjs";
 import { baseNodes, createQuadtree, resolveDisplay, selectLeaves } from "./world-tiles.mjs";
 
 // `style` is the { theme, terrain } entry from virtual_world.styles, `theme`
-// its resolved look, `terrainMaterial` the theme's ground material
-// (world-themes.mjs), and `demBaseUrl` the Terrarium tile source.
-export function createTileManager({ scene, config, style, theme, terrainMaterial, demBaseUrl, onTileReady, onDem }) {
+// its resolved look, `terrainMaterial` the theme's ground material and
+// `buildingMaterial`/`buildingColor` its city buildings (world-themes.mjs;
+// city themes only), and `demBaseUrl` the Terrarium tile source.
+export function createTileManager({
+  scene, config, style, theme, terrainMaterial, buildingMaterial, buildingColor, demBaseUrl, onTileReady, onDem,
+}) {
   const tilesConfig = config.tiles;
   const root = new THREE.Group();
   root.name = "virtual-world-terrain";
@@ -22,6 +26,8 @@ export function createTileManager({ scene, config, style, theme, terrainMaterial
 
   const treeMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   const treeGeometries = [coniferGeometry(), broadleafGeometry()];
+  // A unit box standing on y = 0, scaled per building.
+  const buildingGeometry = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
 
   const worker = new Worker(new URL("./world-tile-worker.mjs", import.meta.url), { type: "module" });
   worker.onmessage = ({ data }) => {
@@ -58,6 +64,7 @@ export function createTileManager({ scene, config, style, theme, terrainMaterial
       config,
       terrain: style.terrain,
       trees: theme.trees,
+      ground: theme.ground ?? "nature",
       demBaseUrl,
     });
   }
@@ -141,6 +148,7 @@ export function createTileManager({ scene, config, style, theme, terrainMaterial
     geometry.computeBoundingSphere();
     group.add(new THREE.Mesh(geometry, terrainMaterial));
     addTrees(group, tile.trees);
+    if (buildingMaterial) addBuildings(group, tile.buildings);
 
     root.add(group);
     cache.set(key, { group, lastUsed: frame });
@@ -183,6 +191,29 @@ export function createTileManager({ scene, config, style, theme, terrainMaterial
     }
   }
 
+  // Buildings: x, y, z, width, depth, height, rotation, color index each
+  // (world-city.mjs#BUILDING_STRIDE).
+  function addBuildings(group, data) {
+    const count = data.length / BUILDING_STRIDE;
+    if (!count) return;
+    const mesh = new THREE.InstancedMesh(buildingGeometry, buildingMaterial, count);
+    const matrix = new THREE.Matrix4();
+    const rotation = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    for (let k = 0; k < count; k++) {
+      const b = k * BUILDING_STRIDE;
+      position.set(data[b], data[b + 1], data[b + 2]);
+      scale.set(data[b + 3], data[b + 5], data[b + 4]);
+      rotation.setFromAxisAngle(up, data[b + 6]);
+      mesh.setMatrixAt(k, matrix.compose(position, rotation, scale));
+      mesh.setColorAt(k, buildingColor(data[b + 7]));
+    }
+    mesh.computeBoundingSphere();
+    group.add(mesh);
+  }
+
   function evict() {
     if (cache.size <= tilesConfig.max_cached_tiles) return;
     const baseKeys = new Set(world.base.map((node) => node.key));
@@ -213,6 +244,8 @@ export function createTileManager({ scene, config, style, theme, terrainMaterial
     scene.remove(root);
     treeMaterial.dispose();
     treeGeometries.forEach((geometry) => geometry.dispose());
+    buildingGeometry.dispose();
+    buildingMaterial?.dispose();
   }
 
   return { setWorld, setTerrain, update, dispose };

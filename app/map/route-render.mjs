@@ -159,8 +159,18 @@ export function createRouteLine(segment) {
     outerColor: segment.focused ? ROUTE_FOCUS_OUTER_COLOR : ROUTE_LINE_OUTER_COLOR,
     outerWidth: segment.focused ? ROUTE_FOCUS_OUTER_WIDTH : ROUTE_LINE_OUTER_WIDTH,
   });
+  // The virtual world can hide its route lines (syncRouteLineVisibility).
+  if (state.mapProvider === "virtual") line.isRouteLine = true;
   state.map.append(line);
   return line;
+}
+
+// In the virtual world the route line is hidden in first person: the rider
+// rides the generated road itself, and the line floating overhead adds
+// nothing there. Google's map keeps it (its road is only imagery).
+export function syncRouteLineVisibility() {
+  if (state.mapProvider !== "virtual" || !state.map) return;
+  state.map.routeLinesHidden = isFirstPersonCameraView();
 }
 
 // Route points → the polyline's path, floated above the ground.

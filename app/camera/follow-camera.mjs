@@ -96,7 +96,11 @@ function followCameraTarget() {
 // Terrain lift is stateful time-based smoothing, so predicted targets skip it
 // (the chase re-applies it once it takes over from a docked transition).
 export function followCameraTargetAt(progressMeters, { terrainLift = true } = {}) {
-  const position = interpolateRoutePoint(state.route, progressMeters);
+  // The virtual world's road is a smoothed curve through the track; its
+  // cameras ride that road (position, road height, heading) so they never
+  // drift off the asphalt in a bend. Google's map keeps the raw track.
+  const roadPose = state.mapProvider === "virtual" ? state.map.roadPoseAt(progressMeters) : null;
+  const position = roadPose ?? interpolateRoutePoint(state.route, progressMeters);
   const heading = currentRouteHeading(progressMeters);
   if (isFirstPersonCameraView()) {
     return firstPersonCameraTarget(position, heading);
@@ -626,6 +630,10 @@ function captureManualCameraSettings() {
 }
 
 export function currentRouteHeading(progressMeters = state.progressMeters) {
+  // The virtual world's cameras ride its generated road (followCameraTargetAt),
+  // so headings — including the offset a manual drag captures — follow it too.
+  const roadPose = state.mapProvider === "virtual" ? state.map.roadPoseAt(progressMeters) : null;
+  if (roadPose) return normalizeHeading(roadPose.heading);
   // A short window around the rider (routeBearingAt) so the camera points
   // exactly the way the rider is moving, rather than at a spot far up the road.
   return normalizeHeading(routeBearingAt(state.route, progressMeters, HEADING_SAMPLE_METERS));

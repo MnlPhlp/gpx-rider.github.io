@@ -218,3 +218,82 @@ export function buildRoadArrays(centerline, { columns, lift }) {
   }
   return { origin, positions, colorIndex, indices };
 }
+
+// Ride progress → a pose on the road centerline, so the virtual world's
+// cameras ride the generated road rather than the raw track (which cuts the
+// rounded bends). Each route point ({ x, z, distance } in the same local
+// frame) is matched to its nearest centerline point, searching forward only
+// so the mapping stays monotonic even where the road passes itself
+// (switchbacks); progress between route points interpolates that mapping.
+// poseAt returns { x, z, e, heading } — heading in compass degrees, sampled
+// `headingMeters` either side so it turns smoothly.
+export function createRoadTrack(routeLocal, centerline, { searchWindow = 400, headingMeters = 4 } = {}) {
+  if (centerline.length < 2 || routeLocal.length < 2) return null;
+  const arc = new Float64Array(centerline.length);
+  for (let i = 1; i < centerline.length; i++) {
+    arc[i] = arc[i - 1] + Math.hypot(centerline[i].x - centerline[i - 1].x, centerline[i].z - centerline[i - 1].z);
+  }
+
+  const routeDistances = [];
+  const roadArcs = [];
+  let from = 0;
+  for (const point of routeLocal) {
+    let best = from;
+    let bestDistance = Infinity;
+    const to = Math.min(centerline.length - 1, from + searchWindow);
+    for (let i = from; i <= to; i++) {
+      const d = Math.hypot(centerline[i].x - point.x, centerline[i].z - point.z);
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = i;
+      }
+    }
+    from = best;
+    routeDistances.push(point.distance);
+    roadArcs.push(Math.max(arc[best], roadArcs.at(-1) ?? 0));
+  }
+
+  function roadArcAt(progress) {
+    const k = upperIndex(routeDistances, progress);
+    if (k <= 0) return roadArcs[0];
+    if (k >= routeDistances.length) return roadArcs.at(-1);
+    const span = routeDistances[k] - routeDistances[k - 1];
+    const t = span > 0 ? (progress - routeDistances[k - 1]) / span : 0;
+    return roadArcs[k - 1] + (roadArcs[k] - roadArcs[k - 1]) * t;
+  }
+
+  function pointAtArc(s) {
+    const clamped = Math.min(arc.at(-1), Math.max(0, s));
+    const k = Math.min(centerline.length - 1, Math.max(1, upperIndex(arc, clamped)));
+    const a = centerline[k - 1];
+    const b = centerline[k];
+    const span = arc[k] - arc[k - 1];
+    const t = span > 0 ? (clamped - arc[k - 1]) / span : 0;
+    return { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t, e: a.e + (b.e - a.e) * t };
+  }
+
+  return {
+    length: arc.at(-1),
+    poseAt(progressMeters) {
+      const s = roadArcAt(progressMeters);
+      const point = pointAtArc(s);
+      const behind = pointAtArc(s - headingMeters);
+      const ahead = pointAtArc(s + headingMeters);
+      // x = east, z = south: compass bearing = atan2(east, north).
+      const heading = (Math.atan2(ahead.x - behind.x, -(ahead.z - behind.z)) * 180) / Math.PI;
+      return { ...point, heading: (heading + 360) % 360 };
+    },
+  };
+}
+
+// First index whose value is greater than `value` (values ascending).
+function upperIndex(values, value) {
+  let lo = 0;
+  let hi = values.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (values[mid] <= value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}

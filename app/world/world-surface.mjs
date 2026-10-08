@@ -29,7 +29,9 @@ function mixPair(out, a, b, t, amount) {
   mix(out, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t], amount);
 }
 
-export function createSurface(terrain, config) {
+// `city` (optional, world-city.mjs#createCity): paint the urban band as
+// pavement, sidewalks and parks, with trees only in the parks.
+export function createSurface(terrain, config, { city = null } = {}) {
   const palette = Object.fromEntries(Object.entries(config.colors).map(([name, hex]) => [name, hexToLinear(hex)]));
   const forestNoise = createNoise2D(terrain.seed ^ 0x51ed270b);
   const fieldNoise = createNoise2D(terrain.seed ^ 0x2545f491);
@@ -47,6 +49,12 @@ export function createSurface(terrain, config) {
     density *= 1 - smoothstep(0.45, 0.6, slope);
     density *= smoothstep(terrain.waterLevel + 1, terrain.waterLevel + 4, height);
     density *= smoothstep(trees.road_clearance_meters, trees.road_clearance_meters * 2.5, roadDistance);
+    if (city) {
+      // In town only the parks are wooded (squared falloff keeps the fringe,
+      // where buildings start, mostly clear).
+      const urban = city.urbanAt(x, z, roadDistance);
+      density = density * (1 - urban) * (1 - urban) + urban * city.parkAt(x, z) * city.parkTreeDensity;
+    }
     return density;
   }
 
@@ -77,7 +85,18 @@ export function createSurface(terrain, config) {
     mix(out, palette.snow, smoothstep(snowline - 60, snowline + 60, height) * (1 - smoothstep(0.55, 0.75, slope)));
 
     mix(out, palette.sand, 1 - smoothstep(terrain.waterLevel + 0.5, terrain.waterLevel + 3, height));
-    mix(out, palette.shoulder, 1 - smoothstep(config.shoulder_meters * 0.5, config.shoulder_meters, roadDistance));
+
+    let urban = 0;
+    if (city) {
+      // Pavement (blocks of two tones) with green parks, never on cliffs.
+      urban = city.urbanAt(x, z, roadDistance) * (1 - smoothstep(0.25, 0.4, slope));
+      const pavement = [0, 0, 0];
+      mixPair(pavement, palette.pavement, palette.pavement_dark, variation, 1);
+      mix(pavement, palette.park, city.parkAt(x, z));
+      mix(out, pavement, urban);
+    }
+    const edge = 1 - smoothstep(config.shoulder_meters * 0.5, config.shoulder_meters, roadDistance);
+    mixPair(out, palette.shoulder, palette.sidewalk, urban, edge);
     return out;
   }
 

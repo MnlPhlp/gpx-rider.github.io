@@ -187,6 +187,25 @@ class VirtualMap3DElement extends HTMLElement {
     this.requestRender();
   }
 
+  // The rider's pose on the generated road at a ride progress: { lat, lng,
+  // ele (the road's top), heading (compass degrees) }, or null without a
+  // route. The follow and first-person cameras ride this instead of the raw
+  // track, so they stay on the asphalt through the rounded bends.
+  roadPoseAt(progressMeters) {
+    const pose = this.world?.roadTrack?.poseAt(progressMeters);
+    if (!pose) return null;
+    const geo = this.world.terrain.projection.toGeo(pose.x, pose.z);
+    return { ...geo, ele: pose.e + VIRTUAL_WORLD.scene.road_lift_meters, heading: pose.heading };
+  }
+
+  // Hide the route lines (overlays tagged isRouteLine), e.g. in first person.
+  set routeLinesHidden(value) {
+    const hidden = Boolean(value);
+    if (hidden === this._routeLinesHidden) return;
+    this._routeLinesHidden = hidden;
+    this.requestRender();
+  }
+
   // Ground elevation of the virtual terrain (null before the world exists) —
   // what the follow camera's terrain avoidance and the fly-by planner read.
   groundElevationAt(lat, lng) {
@@ -215,6 +234,7 @@ class VirtualMap3DElement extends HTMLElement {
     const pending = this.world.update(this.camera, heightAboveGround);
 
     for (const overlay of this.overlays) {
+      if (overlay.isRouteLine) overlay.object.visible = !this._routeLinesHidden;
       if (overlay.dirty) {
         overlay.dirty = false;
         overlay.sync(terrain, VIRTUAL_WORLD.scene);

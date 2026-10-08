@@ -11,8 +11,10 @@ import * as THREE from "three";
 
 import { createDem } from "./world-dem.mjs";
 import { applyDepthPull } from "./world-depth-pull.mjs";
-import { buildRoadArrays } from "./world-road.mjs";
+import { buildRoadArrays, createRoadTrack } from "./world-road.mjs";
 import {
+  buildingPalette,
+  createBuildingMaterial,
   createHorizonMaterial,
   createRoadMaterial,
   createSky,
@@ -55,6 +57,7 @@ export function createWorldScene(config, { style, demBaseUrl, onTileReady, onTer
 
   const terrainMaterial = createTerrainMaterial(theme, sunDirection);
   let road = null;
+  let roadTrack = null;
   let terrain = null;
   let route = [];
   const tiles = createTileManager({
@@ -63,6 +66,8 @@ export function createWorldScene(config, { style, demBaseUrl, onTileReady, onTer
     style,
     theme,
     terrainMaterial,
+    buildingMaterial: theme.buildings ? createBuildingMaterial(theme) : null,
+    buildingColor: theme.buildings ? buildingPalette(theme) : null,
     demBaseUrl,
     onTileReady,
     onDem: (demTiles) => {
@@ -84,6 +89,11 @@ export function createWorldScene(config, { style, demBaseUrl, onTileReady, onTer
     }
     road = createRoad(terrain.centerline, look, theme);
     if (road) scene.add(road);
+    // Ride progress → the generated road (route points need their distance).
+    const routeLocal = route
+      .filter((p) => Number.isFinite(Number(p?.distance)))
+      .map((p) => ({ ...terrain.projection.toLocal(p.lat, p.lng), distance: Number(p.distance) }));
+    roadTrack = createRoadTrack(routeLocal, terrain.centerline);
     tiles.setWorld(terrain, route);
     return terrain;
   }
@@ -128,6 +138,9 @@ export function createWorldScene(config, { style, demBaseUrl, onTileReady, onTer
     dispose,
     get terrain() {
       return terrain;
+    },
+    get roadTrack() {
+      return roadTrack;
     },
   };
 }

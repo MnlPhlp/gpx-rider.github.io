@@ -30,6 +30,7 @@ import {
 import {
   removeRiderMarker,
   renderRiderDot,
+  syncRouteLineVisibility,
   updateMinimapPosition,
   updateRiderDot,
 } from "../map/route-render.mjs";
@@ -59,6 +60,7 @@ export function updateRideUi(options = {}) {
   }
   updateGhostMarker();
   updateRouteTrail();
+  syncRouteLineVisibility();
   updateMapCamera();
 
   // Per-frame work ends here. DOM stats, the profile canvas, and the trainer

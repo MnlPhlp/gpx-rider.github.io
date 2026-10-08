@@ -576,6 +576,8 @@ virtual_world:
     - { id: "virtual-real", label: "Natural landscape · real terrain", theme: "nature", terrain: "real" }
     - { id: "neon", label: "Neon grid", theme: "neon", terrain: "route" }
     - { id: "neon-real", label: "Neon grid · real terrain", theme: "neon", terrain: "real" }
+    - { id: "city", label: "City", theme: "city", terrain: "route" }
+    - { id: "city-real", label: "City · real terrain", theme: "city", terrain: "real" }
 
   # The height field (world-terrain.mjs).
   terrain:
@@ -699,6 +701,11 @@ virtual_world:
       snow: "#f3f6f9"
       sand: "#d2c497"
       shoulder: "#a39880"
+      # City look only (themes with ground: "city").
+      pavement: "#9c9a95"
+      pavement_dark: "#7e7d7a"
+      park: "#6f9a4a"
+      sidewalk: "#c4c1ba"
     trees:
       # Jittered tree lattice spacing; forest cells keep a tree with probability
       # density × forest_fill, meadows with lone_tree_chance.
@@ -709,6 +716,51 @@ virtual_world:
       conifer_share: 0.45
       min_scale: 0.75
       max_scale: 1.35
+
+  # The city look's layout (world-city.mjs), used by themes with
+  # ground: "city". A town grows along the route and fades into countryside.
+  city:
+    # Built-up within this distance of the road, fading out over urban_fade;
+    # district_meters is the scale of the ragged town edge and of the slowly
+    # turning street-grid angle away from the road.
+    urban_radius_meters: 900
+    urban_fade_meters: 500
+    district_meters: 1400
+    # One building per lattice cell at most (block_meters square); footprints
+    # stay within the cell minus street_gap, so neighbors never overlap.
+    block_meters: 34
+    street_gap_meters: 7
+    occupancy: 0.8
+    min_footprint_meters: 10
+    max_footprint_meters: 24
+    # Heights: min_height (2–4 floor houses and blocks) everywhere, rising
+    # toward max_height only where a "downtown" field of this wavelength
+    # exceeds downtown_from (0..1; squared ramp, so towers stay a small
+    # center), ±30% per building. Buildings past tower_from of that ramp use
+    # the glass tower facades.
+    min_height_meters: 10
+    max_height_meters: 150
+    downtown_meters: 3500
+    downtown_from: 0.6
+    tower_from: 0.2
+    # Clear of the road by this much plus half the footprint's diagonal;
+    # within align_to_road_meters a building faces the road.
+    road_setback_meters: 9
+    align_to_road_meters: 220
+    # Skip cells whose ground varies more than this under the footprint; the
+    # rest sit on their lowest corner, sunk by foundation_meters.
+    max_ground_step_meters: 9
+    foundation_meters: 1.5
+    # Parks: fBm patch scale, threshold (higher = fewer parks) and how wooded.
+    park_patch_meters: 450
+    park_threshold: 0.3
+    park_tree_density: 0.7
+    # Level of detail: every building on tiles up to full_max_tile_meters;
+    # only the skyline (at least skyline_min_height) up to
+    # skyline_max_tile_meters; none on coarser tiles.
+    full_max_tile_meters: 800
+    skyline_max_tile_meters: 3200
+    skyline_min_height_meters: 35
 
   # Terrain level of detail (world-tiles.mjs, world-scene.mjs).
   tiles:
@@ -732,7 +784,9 @@ virtual_world:
     max_inflight: 4
 
   # The look of the scene (world-scene.mjs).
-  # Looks (world-themes.mjs). `terrain_style` picks the ground rendering:
+  # Looks (world-themes.mjs). `ground: "city"` adds the town (layout above,
+  # buildings drawn with the `buildings` block). `terrain_style` picks the
+  # ground rendering:
   # "biome" = lit ground with the surface colors above, "neon" = dark ground
   # with glowing grid and contour lines (the `neon` block). `unlit` draws the
   # road with flat, full-brightness colors (glowing edge lines).
@@ -780,6 +834,32 @@ virtual_world:
         contour: "#ff2bd6"
         contour_spacing_meters: 50
         glow: 0.45
+
+    city:
+      terrain_style: "biome"
+      ground: "city"
+      trees: true
+      unlit: false
+      sky_top: "#4a86d0"
+      sky_horizon: "#d9e4ee"
+      ground_haze: "#c6ced6"
+      sun_glow: 1
+      fog_scale: 1.3
+      water: "#3b6a8a"
+      water_opacity: 0.93
+      horizon_ground: "#7d7f74"
+      road: "#3a3b40"
+      road_edge: "#f2efe6"
+      road_embankment: "#a3a19b"
+      buildings:
+        # Facades by building type, picked per building; windows are drawn
+        # procedurally (window_width × floor_height cells, glass inset).
+        facades: ["#cfc6b6", "#b9b2a6", "#ddd5c5", "#a7a097", "#c7b49a", "#e4dfd4", "#b0a596", "#d4c9b0"]
+        towers: ["#8ea3b5", "#7d93a8", "#a7b6c2", "#6f8799", "#9aa9b0"]
+        roof: "#6f6d69"
+        glass: "#2f4256"
+        window_width_meters: 3
+        floor_height_meters: 3.4
 
   scene:
     road_width_meters: 5

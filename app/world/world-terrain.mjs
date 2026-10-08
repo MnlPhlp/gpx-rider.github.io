@@ -151,8 +151,9 @@ export function createWorldTerrain(route, config, { dem = null } = {}) {
     : minElevation - config.water_below_route_meters;
 
   // Everything about the ground at (x, z), written into `out` (reused by hot
-  // loops to avoid allocating): height, distance to the road, and the local
-  // relief amplitude and alpine mix the surface colors key off.
+  // loops to avoid allocating): height, distance to the road and the nearest
+  // road's heading (roadDirX/Z), and the local relief amplitude and alpine
+  // mix the surface colors key off.
   function sample(x, z, out = {}) {
     const near = segments.query(x, z, radius, halfWidth, power);
     const reg = regional.at(x, z);
@@ -195,6 +196,7 @@ export function createWorldTerrain(route, config, { dem = null } = {}) {
 
     out.height = base + scaled * nearRamp * shape;
     out.roadDistance = distance;
+    roadDirection(near, out);
     out.amplitude = scaled * nearRamp;
     out.alpine = alpine;
     return out;
@@ -213,9 +215,20 @@ export function createWorldTerrain(route, config, { dem = null } = {}) {
       : 0;
     out.height = natural + (near.nearestElevation - natural) * bed;
     out.roadDistance = distance;
+    roadDirection(near, out);
     out.amplitude = real.detail_meters * detailRamp;
     out.alpine = smoothstep(real.alpine_from_meters, real.alpine_full_meters, out.height);
     return out;
+  }
+
+  // The heading of the nearest road segment within the influence radius as
+  // a unit x/z vector (0, 0 when none is that close).
+  function roadDirection(near, out) {
+    if (near.nearestIndex >= 0) segments.tangent(near.nearestIndex, out);
+    else {
+      out.roadDirX = 0;
+      out.roadDirZ = 0;
+    }
   }
 
   const scratch = {};
@@ -272,11 +285,20 @@ function buildSegmentIndex(samples, cellSize) {
     if (!list) cells.set(key, (list = []));
     list.push(i);
   }
-  const result = { minDistance: Infinity, nearestElevation: 0, sumWeight: 0, sumWeightedElevation: 0 };
+  const result = { minDistance: Infinity, nearestElevation: 0, nearestIndex: -1, sumWeight: 0, sumWeightedElevation: 0 };
 
   return {
+    // Unit direction of segment i in x/z (the road's heading there).
+    tangent(i, out) {
+      const tx = bx[i] - ax[i];
+      const tz = bz[i] - az[i];
+      const length = Math.hypot(tx, tz) || 1;
+      out.roadDirX = tx / length;
+      out.roadDirZ = tz / length;
+    },
     query(x, z, radius, halfWidth, power) {
       result.minDistance = Infinity;
+      result.nearestIndex = -1;
       result.sumWeight = 0;
       result.sumWeightedElevation = 0;
       if (!count) return result;
@@ -303,6 +325,7 @@ function buildSegmentIndex(samples, cellSize) {
             if (d < result.minDistance) {
               result.minDistance = d;
               result.nearestElevation = elevation;
+              result.nearestIndex = i;
             }
             const taper = (1 - d / radius) * (1 - d / radius);
             const w = taper / Math.pow(Math.max(0, d - halfWidth) + 1, power);

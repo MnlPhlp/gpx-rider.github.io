@@ -7,6 +7,7 @@ import { createSurface, hexToLinear } from "../app/world/world-surface.mjs";
 import {
   buildRoadArrays,
   catmullRomPolyline,
+  createRoadTrack,
   crossSectionFrames,
   simplifyPolyline,
   smoothPolyline,
@@ -14,6 +15,7 @@ import {
 import { createWorldProjection, createWorldTerrain, resampleRouteLocal } from "../app/world/world-terrain.mjs";
 import { createDem, demTilesForBox, globalPixel } from "../app/world/world-dem.mjs";
 import { tileForLngLat } from "../app/map/terrain-tiles-math.mjs";
+import { BUILDING_STRIDE, createCity } from "../app/world/world-city.mjs";
 import {
   baseNodes,
   buildTileArrays,
@@ -391,4 +393,77 @@ test("real terrain: road bed at the GPX elevation, real ground away from it", ()
   assert.ok(far.roadDistance > config.real.road_blend_meters * 4);
   assert.ok(Math.abs(far.height - 700) <= config.real.detail_meters + 1e-6, `far ground ${far.height} follows the DEM`);
   assert.ok(terrain.waterLevel <= config.real.sea_level_meters);
+});
+
+function buildingsOf(placed) {
+  const list = [];
+  for (let k = 0; k < placed.count; k++) {
+    const b = placed.data.slice(k * BUILDING_STRIDE, (k + 1) * BUILDING_STRIDE);
+    list.push({ x: b[0], y: b[1], z: b[2], width: b[3], depth: b[4], height: b[5], rotation: b[6], color: b[7] });
+  }
+  return list;
+}
+
+test("city buildings: clear of the road, never overlapping, on the ground", () => {
+  const terrain = createWorldTerrain(climbRoute(), VIRTUAL_WORLD.terrain);
+  const config = VIRTUAL_WORLD.city;
+  const city = createCity(terrain, config);
+  const buildings = buildingsOf(city.placeBuildings(-800, -800, 1600));
+  assert.ok(buildings.length > 20, `a town was built (${buildings.length})`);
+  for (const b of buildings) {
+    const ground = terrain.sample(b.x, b.z, {});
+    assert.ok(ground.roadDistance >= config.road_setback_meters + Math.hypot(b.width, b.depth) / 2 - 1e-6, "clear of the road");
+    assert.ok(Math.hypot(b.width, b.depth) <= config.block_meters - config.street_gap_meters + 1e-6, "fits its cell");
+    assert.ok(b.y <= ground.height - config.foundation_meters + 1e-6, "base sunk into the ground");
+    assert.ok(b.height > 0);
+  }
+  // One per lattice cell, so centers are at least a block apart.
+  for (let a = 0; a < buildings.length; a++) {
+    for (let c = a + 1; c < buildings.length; c++) {
+      const gap = Math.hypot(buildings[a].x - buildings[c].x, buildings[a].z - buildings[c].z);
+      assert.ok(gap >= config.block_meters - 1e-6);
+    }
+  }
+});
+
+test("city buildings are stable across tile splits and the skyline keeps only tall ones", () => {
+  const terrain = createWorldTerrain(climbRoute(), VIRTUAL_WORLD.terrain);
+  const city = createCity(terrain, VIRTUAL_WORLD.city);
+  const whole = buildingsOf(city.placeBuildings(-600, -600, 1200));
+  const quarters = [[-600, -600], [0, -600], [-600, 0], [0, 0]]
+    .flatMap(([x0, z0]) => buildingsOf(city.placeBuildings(x0, z0, 600)));
+  const key = (b) => `${b.x.toFixed(3)},${b.z.toFixed(3)},${b.height.toFixed(3)}`;
+  assert.deepEqual(new Set(quarters.map(key)), new Set(whole.map(key)));
+  const minHeight = 12;
+  const skyline = buildingsOf(city.placeBuildings(-600, -600, 1200, { minHeight }));
+  assert.ok(skyline.length > 0 && skyline.length < whole.length, "a skyline, not the whole town");
+  const all = new Set(whole.map(key));
+  assert.ok(skyline.every((b) => all.has(key(b))), "skyline buildings are the same buildings");
+  assert.ok(skyline.every((b) => b.height >= minHeight), "only tall ones");
+});
+
+test("road track: the camera pose rides the generated road, not the raw track", () => {
+  // The raw hairpin with route distances, and the smooth road through it.
+  const raw = hairpinLocal();
+  let distance = 0;
+  const routeLocal = raw.map((p, i) => {
+    if (i) distance += Math.hypot(p.x - raw[i - 1].x, p.z - raw[i - 1].z);
+    return { ...p, distance };
+  });
+  const centerline = catmullRomPolyline(raw, 2);
+  const track = createRoadTrack(routeLocal, centerline);
+  let previousArc = -1;
+  for (let progress = 0; progress <= distance; progress += 5) {
+    const pose = track.poseAt(progress);
+    // Always on the centerline (within its 2 m sampling).
+    const nearest = Math.min(...centerline.map((c) => Math.hypot(c.x - pose.x, c.z - pose.z)));
+    assert.ok(nearest < 1.01, `pose ${nearest} m off the road`);
+    // Monotonic along the road, even where the two legs run side by side.
+    const arc = centerline.reduce((best, c, i) => (Math.hypot(c.x - pose.x, c.z - pose.z) < best.d ? { d: Math.hypot(c.x - pose.x, c.z - pose.z), i } : best), { d: Infinity, i: 0 }).i;
+    assert.ok(arc >= previousArc - 1, "never jumps back to the other leg");
+    previousArc = arc;
+  }
+  // Up the first leg (toward -z) the heading is north; down the second, south.
+  assert.ok(Math.abs(track.poseAt(30).heading - 0) < 2 || Math.abs(track.poseAt(30).heading - 360) < 2);
+  assert.ok(Math.abs(track.poseAt(distance - 30).heading - 180) < 2);
 });

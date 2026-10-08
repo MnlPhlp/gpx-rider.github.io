@@ -93,6 +93,67 @@ export function createTerrainMaterial(theme, sunDirection) {
   return material;
 }
 
+// City buildings: instanced unit boxes (base at y = 0, see world-city.mjs)
+// scaled per building, facade color per instance, and windows drawn in the
+// shader — a glass inset in every window_width × floor_height cell of each
+// wall, measured in meters on that wall, fading to an average tone where the
+// cells get smaller than a few pixels. Roofs get the roof color.
+export function createBuildingMaterial(theme) {
+  const look = theme.buildings;
+  const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const glass = new THREE.Color(look.glass);
+  const roof = new THREE.Color(look.roof);
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.glassColor = { value: glass };
+    shader.uniforms.roofColor = { value: roof };
+    shader.uniforms.windowCell = { value: new THREE.Vector2(look.window_width_meters, look.floor_height_meters) };
+    shader.vertexShader = `varying vec2 vFacade;\nvarying float vRoof;\n${shader.vertexShader}`.replace(
+      "#include <begin_vertex>",
+      `#include <begin_vertex>
+      #ifdef USE_INSTANCING
+        vec3 buildingScale = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
+      #else
+        vec3 buildingScale = vec3(1.0);
+      #endif
+      vec3 wallMeters = position * buildingScale;
+      vRoof = step(0.5, abs(objectNormal.y));
+      vFacade = abs(objectNormal.x) > 0.5 ? vec2(wallMeters.z, wallMeters.y) : vec2(wallMeters.x, wallMeters.y);`,
+    );
+    shader.fragmentShader = `uniform vec3 glassColor;\nuniform vec3 roofColor;\nuniform vec2 windowCell;\nvarying vec2 vFacade;\nvarying float vRoof;\n${shader.fragmentShader}`.replace(
+      "#include <color_fragment>",
+      `#include <color_fragment>
+      if (vRoof > 0.5) {
+        diffuseColor.rgb = roofColor * (0.8 + 0.2 * diffuseColor.rgb);
+      } else {
+        vec2 cell = vFacade / windowCell;
+        vec2 f = fract(cell);
+        vec2 aa = fwidth(cell);
+        float inset = smoothstep(0.18, 0.18 + aa.x, f.x) * (1.0 - smoothstep(0.82 - aa.x, 0.82, f.x))
+          * smoothstep(0.28, 0.28 + aa.y, f.y) * (1.0 - smoothstep(0.86 - aa.y, 0.86, f.y));
+        // The ground floor is a darker band; tiny cells fade to the average.
+        inset *= step(1.0, cell.y);
+        float detail = 1.0 - smoothstep(0.25, 0.6, max(aa.x, aa.y));
+        vec3 windowed = mix(diffuseColor.rgb, glassColor, inset);
+        vec3 average = mix(diffuseColor.rgb, glassColor, 0.3);
+        diffuseColor.rgb = mix(average, windowed, detail);
+        diffuseColor.rgb *= mix(0.72, 1.0, step(1.0, cell.y));
+      }`,
+    );
+  };
+  material.customProgramCacheKey = () => "city-buildings";
+  return material;
+}
+
+// The facade palette as colors, indexed like world-city.mjs's color index
+// (16 slots per group: 0 = houses, 1 = towers).
+export function buildingPalette(theme) {
+  const groups = [theme.buildings.facades, theme.buildings.towers].map((list) => list.map((hex) => new THREE.Color(hex)));
+  return (index) => {
+    const group = groups[Math.floor(index / 16)] ?? groups[0];
+    return group[(index % 16) % group.length];
+  };
+}
+
 export function createWaterMaterial(theme) {
   const color = new THREE.Color(theme.water);
   const options = { color, transparent: true, opacity: theme.water_opacity };
