@@ -12,6 +12,11 @@ import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 
+import { VIRTUAL_WORLD } from "../core/tuning.mjs";
+import { applyDepthPull } from "./world-depth-pull.mjs";
+
+const ROAD_DEPTH_PULL = VIRTUAL_WORLD.scene.road_depth_pull;
+
 export const AltitudeMode = Object.freeze({
   ABSOLUTE: "ABSOLUTE",
   CLAMP_TO_GROUND: "CLAMP_TO_GROUND",
@@ -287,6 +292,8 @@ export class Model3DElement extends VirtualOverlay {
         if (child.isMesh) {
           child.renderOrder = 15;
           child.material.transparent = true;
+          // The same depth margin as the road, so the road never covers it.
+          applyDepthPull(child.material, ROAD_DEPTH_PULL);
         }
       });
       this.object.add(this.model);

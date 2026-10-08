@@ -6,6 +6,8 @@
 
 import * as THREE from "three";
 
+import { applyDepthPull } from "./world-depth-pull.mjs";
+import { buildRoadArrays } from "./world-road.mjs";
 import { createTileManager } from "./world-tile-manager.mjs";
 import { createWorldTerrain } from "./world-terrain.mjs";
 
@@ -64,7 +66,7 @@ export function createWorldScene(config, { onTileReady }) {
       scene.remove(road);
       road.geometry.dispose();
     }
-    road = createRoad(terrain.samples, look);
+    road = createRoad(terrain.centerline, look);
     if (road) scene.add(road);
     tiles.setWorld(terrain, route);
     return terrain;
@@ -147,39 +149,38 @@ function createSky(look, sunDirection) {
   return sky;
 }
 
-// The asphalt ribbon along the track: two vertices per route sample, offset
-// sideways along the averaged tangent, a hair above the flat road bed.
-function createRoad(samples, look) {
-  if (samples.length < 2) return null;
+// The road along the smooth centerline as a solid strip (world-road.mjs): an
+// asphalt top lifted a little above the flat road bed, and on each side an
+// embankment sloping down and out into the ground, so wherever the terrain
+// mesh dips below the road there is a bank, never a gap. Columns left to
+// right: bank foot, bank top, asphalt edge, asphalt edge, bank top, bank foot
+// (edges doubled so asphalt and banks get their own colors and normals).
+function createRoad(centerline, look) {
   const half = look.road_width_meters / 2;
-  const positions = new Float32Array(samples.length * 2 * 3);
-  const origin = samples[0];
-  for (let i = 0; i < samples.length; i++) {
-    const prev = samples[Math.max(0, i - 1)];
-    const next = samples[Math.min(samples.length - 1, i + 1)];
-    let tx = next.x - prev.x;
-    let tz = next.z - prev.z;
-    const length = Math.hypot(tx, tz) || 1;
-    tx /= length;
-    tz /= length;
-    const s = samples[i];
-    const y = s.e + 0.15;
-    positions.set([s.x - origin.x - tz * half, y, s.z - origin.z + tx * half], i * 6);
-    positions.set([s.x - origin.x + tz * half, y, s.z - origin.z - tx * half], i * 6 + 3);
-  }
-  const indices = [];
-  for (let i = 0; i < samples.length - 1; i++) {
-    const a = i * 2;
-    indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-  }
+  const foot = half + look.road_embankment_spread_meters;
+  const depth = look.road_embankment_depth_meters;
+  const BANK = 0;
+  const ASPHALT = 1;
+  const arrays = buildRoadArrays(centerline, {
+    lift: look.road_lift_meters,
+    columns: [
+      [foot, -depth, BANK], [half, 0, BANK], [half, 0, ASPHALT],
+      [-half, 0, ASPHALT], [-half, 0, BANK], [-foot, -depth, BANK],
+    ],
+  });
+  if (!arrays) return null;
+  const palette = [new THREE.Color(look.road_embankment), new THREE.Color(look.road)];
+  const colors = new Float32Array(arrays.colorIndex.length * 3);
+  arrays.colorIndex.forEach((index, v) => palette[index].toArray(colors, v * 3));
+
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setIndex(indices);
+  geometry.setAttribute("position", new THREE.BufferAttribute(arrays.positions, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.setIndex(new THREE.BufferAttribute(arrays.indices, 1));
   geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(
-    geometry,
-    new THREE.MeshLambertMaterial({ color: new THREE.Color(look.road), side: THREE.DoubleSide }),
-  );
-  mesh.position.set(origin.x, 0, origin.z);
+  const material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  applyDepthPull(material, look.road_depth_pull);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(arrays.origin.x, 0, arrays.origin.z);
   return mesh;
 }

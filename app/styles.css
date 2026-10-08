@@ -1642,6 +1642,11 @@ html.render-mode .theater-toolbar {
   gap: 12px;
 }
 
+/* The Map rendering card is a single row: title and select, centered. */
+.map-renderer-card .panel-card-head {
+  align-items: center;
+}
+
 .panel-card-title {
   font: 600 11px/1 var(--font-ui);
   letter-spacing: 0.13em;

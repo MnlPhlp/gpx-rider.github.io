@@ -13,7 +13,6 @@ import { renderProfile } from "../route/profile-ui.mjs";
 import { updateRecordingUi } from "../ride/recording-ui.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
 import { gradeAt, interpolateRoutePoint } from "../route/route.mjs";
-import { applyMapRenderer } from "../map/map-init.mjs";
 import { prefetchTerrainAround } from "../map/terrain-tiles.mjs";
 import { rebuildRiderBeacon, rebuildRouteStyle } from "../map/route-render.mjs";
 import { parseAspectRatio, screenshotSupported } from "../map/screenshot.mjs";
@@ -27,7 +26,6 @@ import {
   DEFAULT_BEACON_HEIGHT_METERS,
   DEFAULT_BEACON_OPACITY,
   DEFAULT_DURATION_FORMAT,
-  DEFAULT_MAP_RENDERER,
   DEFAULT_MAX_HEART_RATE_BPM,
   DEFAULT_RESTING_HEART_RATE_BPM,
   DEFAULT_ROUTE_GRADE_COLORS_ENABLED,
@@ -230,18 +228,7 @@ export function updateRenderingSettingsFromControls() {
   updateRideUi();
 }
 
-// The Map rendering select swaps the 3D map engine live (map-init.mjs).
-export function updateMapRendererFromControl() {
-  const renderer = els.mapRendererSelect.value === "virtual" ? "virtual" : "google";
-  if (renderer === state.mapRenderer) return;
-  state.mapRenderer = renderer;
-  saveSettings();
-  applyMapRenderer();
-}
-
 export function resetRenderingToDefaults() {
-  const rendererChanged = state.mapRenderer !== DEFAULT_MAP_RENDERER;
-  state.mapRenderer = DEFAULT_MAP_RENDERER;
   const routeGradeColorsChanged = state.routeGradeColorsEnabled !== DEFAULT_ROUTE_GRADE_COLORS_ENABLED;
   state.routeGradeColorsEnabled = DEFAULT_ROUTE_GRADE_COLORS_ENABLED;
   state.beaconEnabled = DEFAULT_BEACON_ENABLED;
@@ -259,11 +246,9 @@ export function resetRenderingToDefaults() {
   rebuildRiderBeacon();
   if (routeGradeColorsChanged) rebuildRouteStyle();
   updateRideUi();
-  if (rendererChanged) applyMapRenderer();
 }
 
 export function syncRenderingControls() {
-  els.mapRendererSelect.value = state.mapRenderer;
   els.routeGradeColorsInput.checked = state.routeGradeColorsEnabled;
   els.beaconEnabledInput.checked = state.beaconEnabled;
   els.beaconDiameterInput.value = String(state.beaconDiameterMeters);

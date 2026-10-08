@@ -10,6 +10,7 @@ import { bindManualCameraCapture } from "../camera/follow-camera.mjs";
 import { registerHudComponent } from "../hud/screen-manager.mjs";
 import { removeGhostMarker } from "../replay/ghost-ui.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
+import { saveSettings } from "../storage/persistence.mjs";
 import { clearRouteFromMap, renderRoute } from "./route-render.mjs";
 import { openSettings } from "../settings/settings-ui.mjs";
 import { els, state, updateProgressLabel } from "../core/state.mjs";
@@ -46,9 +47,10 @@ export function registerMinimapHud() {
 }
 
 export async function initMap() {
+  els.mapRendererSelect.value = state.mapRenderer;
   const apiKey = resolveMapsApiKey();
   if (!apiKey && state.mapRenderer !== "virtual") {
-    updateProgressLabel("Add your Google Maps API key in Settings (⚙, top right) to load the map, or switch Settings › Rendering › Map rendering to the virtual world.");
+    updateProgressLabel("Add your Google Maps API key in Settings (⚙, top right) to load the map, or switch Map rendering to a virtual world.");
     // First run: the key input lives in the settings dialog's Data &
     // storage panel, so open the dialog on that panel.
     openSettings("data");
@@ -87,6 +89,15 @@ async function createMainMap(camera) {
       ? "The virtual world could not start. This browser may not support WebGL."
       : "Photorealistic 3D Maps did not load. Check that the 3D Maps feature is enabled for your Google API key.");
   }
+}
+
+// The side panel's Map rendering select: persist the choice and swap the map.
+export function updateMapRendererFromControl() {
+  const renderer = els.mapRendererSelect.value === "virtual" ? "virtual" : "google";
+  if (renderer === state.mapRenderer) return;
+  state.mapRenderer = renderer;
+  saveSettings();
+  applyMapRenderer();
 }
 
 // Swap the 3D map to the renderer in state.mapRenderer mid-session, keeping

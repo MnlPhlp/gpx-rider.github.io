@@ -24,6 +24,7 @@
 // y = elevation in meters, all relative to the route's bounding-box center.
 
 import { createNoise2D, fbm, ridged, seedFromString } from "./world-noise.mjs";
+import { roadCenterline, simplifyPolyline } from "./world-road.mjs";
 
 const EARTH_RADIUS_METERS = 6371000;
 const DEG = Math.PI / 180;
@@ -91,7 +92,13 @@ export function createWorldTerrain(route, config) {
   const seed = points.length
     ? seedFromString(`${points[0].lat.toFixed(5)},${points[0].lng.toFixed(5)},${points.length}`)
     : 1;
-  const samples = resampleRouteLocal(points, projection, config.resample_meters);
+  // The road's smooth centerline (world-road.mjs) — the scene draws the
+  // asphalt along it and the road bed below follows it.
+  const centerline = roadCenterline(resampleRouteLocal(points, projection, Infinity), config);
+  // The ground is shaped by the simplified smooth centerline: close enough to
+  // the asphalt (centerline_tolerance_meters) that the road bed stays under
+  // it, far fewer segments for every height query to visit.
+  const samples = simplifyPolyline(centerline, config.centerline_tolerance_meters, config.resample_meters);
   const relief = config.relief;
 
   // Elevation statistics of the route itself.
@@ -139,7 +146,12 @@ export function createWorldTerrain(route, config) {
   function sample(x, z, out = {}) {
     const near = segments.query(x, z, radius, halfWidth, power);
     const reg = regional.at(x, z);
-    const base = (near.sumWeightedElevation + backgroundWeight * reg.mean) / (near.sumWeight + backgroundWeight);
+    const blended = (near.sumWeightedElevation + backgroundWeight * reg.mean) / (near.sumWeight + backgroundWeight);
+    // Inside the bed the ground is exactly the nearest road point's elevation
+    // (the weighted blend averages neighboring segments and would sit a few
+    // centimeters off on a climb); it eases into the blend beyond.
+    const bed = near.minDistance < radius ? 1 - smoothstep(halfWidth, halfWidth + config.road_bed_blend_meters, near.minDistance) : 0;
+    const base = blended + (near.nearestElevation - blended) * bed;
     const distance = near.minDistance < radius ? near.minDistance : Math.max(radius, reg.distance);
 
     const amplitude = Math.min(relief.max_amplitude_meters, Math.max(relief.min_amplitude_meters, reg.spread * relief.local_relief_factor));
@@ -184,6 +196,7 @@ export function createWorldTerrain(route, config) {
     bounds,
     extent,
     samples,
+    centerline,
     minElevation,
     maxElevation,
     meanElevation,
@@ -225,7 +238,7 @@ function buildSegmentIndex(samples, cellSize) {
     if (!list) cells.set(key, (list = []));
     list.push(i);
   }
-  const result = { minDistance: Infinity, sumWeight: 0, sumWeightedElevation: 0 };
+  const result = { minDistance: Infinity, nearestElevation: 0, sumWeight: 0, sumWeightedElevation: 0 };
 
   return {
     query(x, z, radius, halfWidth, power) {
@@ -252,11 +265,15 @@ function buildSegmentIndex(samples, cellSize) {
             const dz = z - (az[i] + sz * t);
             const d = Math.sqrt(dx * dx + dz * dz);
             if (d >= radius) continue;
-            if (d < result.minDistance) result.minDistance = d;
+            const elevation = ea[i] + (eb[i] - ea[i]) * t;
+            if (d < result.minDistance) {
+              result.minDistance = d;
+              result.nearestElevation = elevation;
+            }
             const taper = (1 - d / radius) * (1 - d / radius);
             const w = taper / Math.pow(Math.max(0, d - halfWidth) + 1, power);
             result.sumWeight += w;
-            result.sumWeightedElevation += w * (ea[i] + (eb[i] - ea[i]) * t);
+            result.sumWeightedElevation += w * elevation;
           }
         }
       }

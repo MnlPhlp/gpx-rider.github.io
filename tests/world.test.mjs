@@ -4,6 +4,13 @@ import test from "node:test";
 import { VIRTUAL_WORLD } from "../app/core/tuning.mjs";
 import { cellRandom, createNoise2D, fbm, ridged, seedFromString } from "../app/world/world-noise.mjs";
 import { createSurface, hexToLinear } from "../app/world/world-surface.mjs";
+import {
+  buildRoadArrays,
+  catmullRomPolyline,
+  crossSectionFrames,
+  simplifyPolyline,
+  smoothPolyline,
+} from "../app/world/world-road.mjs";
 import { createWorldProjection, createWorldTerrain, resampleRouteLocal } from "../app/world/world-terrain.mjs";
 import {
   baseNodes,
@@ -183,4 +190,139 @@ test("hexToLinear converts sRGB to linear", () => {
   assert.deepEqual(hexToLinear("#ffffff"), [1, 1, 1]);
   const [r] = hexToLinear("#808080");
   assert.ok(Math.abs(r - 0.2159) < 1e-3);
+});
+
+// A right-angle corner: 200 m east, then 200 m north, flat at 500 m.
+function cornerRoute() {
+  const dLat = 1 / 111195;
+  const dLng = 1 / (111195 * Math.cos(46.5 * Math.PI / 180));
+  return [
+    { lat: 46.5, lng: 8, ele: 500 },
+    { lat: 46.5, lng: 8 + 200 * dLng, ele: 500 },
+    { lat: 46.5 + 200 * dLat, lng: 8 + 200 * dLng, ele: 500 },
+  ];
+}
+
+function maxTurnPerMeter(line) {
+  let worst = 0;
+  for (let i = 1; i < line.length - 1; i++) {
+    const a = Math.atan2(line[i].z - line[i - 1].z, line[i].x - line[i - 1].x);
+    const b = Math.atan2(line[i + 1].z - line[i].z, line[i + 1].x - line[i].x);
+    let turn = Math.abs(b - a);
+    if (turn > Math.PI) turn = 2 * Math.PI - turn;
+    worst = Math.max(worst, turn / Math.hypot(line[i + 1].x - line[i].x, line[i + 1].z - line[i].z));
+  }
+  return worst;
+}
+
+test("smoothPolyline rounds a corner, keeps the ends and leaves straights alone", () => {
+  const projection = createWorldProjection({ lat: 46.5, lng: 8 });
+  const dense = resampleRouteLocal(cornerRoute(), projection, 3);
+  const smooth = smoothPolyline(dense, 2);
+  assert.equal(smooth.length, dense.length);
+  for (const [a, b] of [[smooth[0], dense[0]], [smooth.at(-1), dense.at(-1)]]) {
+    assert.ok(Math.hypot(a.x - b.x, a.z - b.z, a.e - b.e) < 1e-9, "endpoints stay put");
+  }
+  // A sharp 90° corner turns all at once; the smoothed one spreads it out.
+  // A sharp 90° corner turns all at once (~0.5 rad/m at 3 m spacing); the
+  // smoothed one spreads it over the bend.
+  assert.ok(maxTurnPerMeter(dense) > 0.5);
+  assert.ok(maxTurnPerMeter(smooth) < 0.2, "bend is rounded");
+  // Far from the corner the line is untouched.
+  const middle = Math.floor(dense.length / 4);
+  assert.ok(Math.hypot(smooth[middle].x - dense[middle].x, smooth[middle].z - dense[middle].z) < 1e-6);
+});
+
+test("simplifyPolyline stays within tolerance and caps segment length", () => {
+  const projection = createWorldProjection({ lat: 46.5, lng: 8 });
+  const smooth = smoothPolyline(resampleRouteLocal(cornerRoute(), projection, 3), 2);
+  const simple = simplifyPolyline(smooth, 0.15, 20);
+  assert.ok(simple.length < smooth.length / 2, `${simple.length} of ${smooth.length} kept`);
+  for (let i = 1; i < simple.length; i++) {
+    assert.ok(Math.hypot(simple[i].x - simple[i - 1].x, simple[i].z - simple[i - 1].z) <= 20.0001);
+  }
+  for (const p of smooth) {
+    let nearest = Infinity;
+    for (let i = 1; i < simple.length; i++) {
+      const a = simple[i - 1];
+      const b = simple[i];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const t = Math.min(1, Math.max(0, ((p.x - a.x) * dx + (p.z - a.z) * dz) / (dx * dx + dz * dz || 1)));
+      nearest = Math.min(nearest, Math.hypot(p.x - a.x - dx * t, p.z - a.z - dz * t));
+    }
+    assert.ok(nearest <= 0.15 + 1e-6, `centerline point ${nearest} m off`);
+  }
+});
+
+test("the flat road bed lies under the whole smoothed road", () => {
+  const terrain = createWorldTerrain(climbRoute(), VIRTUAL_WORLD.terrain);
+  const half = VIRTUAL_WORLD.scene.road_width_meters / 2;
+  const line = terrain.centerline;
+  for (let i = 1; i < line.length - 1; i += 7) {
+    const tx = line[i + 1].x - line[i - 1].x;
+    const tz = line[i + 1].z - line[i - 1].z;
+    const length = Math.hypot(tx, tz);
+    for (const side of [-half, 0, half]) {
+      const x = line[i].x - (tz / length) * side;
+      const z = line[i].z + (tx / length) * side;
+      const ground = terrain.heightAt(x, z);
+      assert.ok(Math.abs(ground - line[i].e) < 0.1, `ground ${ground} vs road ${line[i].e} at offset ${side}`);
+    }
+  }
+});
+
+// A 180° hairpin with a 6 m apex radius: up a leg, round the bend, back down
+// a parallel leg 12 m away.
+function hairpinLocal() {
+  const points = [];
+  for (let i = 0; i <= 10; i++) points.push({ x: 0, z: -i * 10, e: 1000 + i });
+  for (let k = 1; k < 8; k++) {
+    const a = Math.PI - (k / 8) * Math.PI;
+    points.push({ x: 6 + 6 * Math.cos(a), z: -100 - 6 * Math.sin(a), e: 1010 + k * 0.5 });
+  }
+  for (let i = 10; i >= 0; i--) points.push({ x: 12, z: -i * 10, e: 1014 + (10 - i) });
+  return points;
+}
+
+test("catmullRomPolyline passes through every input point and rounds the corners", () => {
+  const projection = createWorldProjection({ lat: 46.5, lng: 8 });
+  const corner = resampleRouteLocal(cornerRoute(), projection, Infinity);
+  const curve = catmullRomPolyline(corner, 2);
+  for (const p of corner) {
+    assert.ok(curve.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 1e-6), "input point kept");
+  }
+  for (let i = 1; i < curve.length; i++) {
+    // Even in the spline parameter, so allow a little slack in arc length.
+    assert.ok(Math.hypot(curve[i].x - curve[i - 1].x, curve[i].z - curve[i - 1].z) <= 2.5);
+  }
+  // A spline through a hairpin keeps its apex (no inward pull).
+  const hairpin = hairpinLocal();
+  const smooth = catmullRomPolyline(hairpin, 2);
+  const apex = hairpin[14];
+  assert.ok(smooth.some((q) => Math.hypot(q.x - apex.x, q.z - apex.z) < 1e-6));
+});
+
+test("road cross-sections never fold on a tight hairpin", () => {
+  const centerline = catmullRomPolyline(hairpinLocal(), 2);
+  const arrays = buildRoadArrays(centerline, {
+    lift: 0.25,
+    columns: [[4.5, -2.5, 0], [2.5, 0, 0], [2.5, 0, 1], [-2.5, 0, 1], [-2.5, 0, 0], [-4.5, -2.5, 0]],
+  });
+  const width = 6;
+  const frames = crossSectionFrames(centerline);
+  // Each column's edge must keep moving forward along the road (a fold runs
+  // an edge backward).
+  for (let c = 0; c < width; c++) {
+    for (let i = 1; i < centerline.length - 1; i++) {
+      const v0 = ((i - 1) * width + c) * 3;
+      const v1 = (i * width + c) * 3;
+      const dx = arrays.positions[v1] - arrays.positions[v0];
+      const dz = arrays.positions[v1 + 2] - arrays.positions[v0 + 2];
+      const tx = centerline[i + 1].x - centerline[i - 1].x;
+      const tz = centerline[i + 1].z - centerline[i - 1].z;
+      assert.ok(dx * tx + dz * tz >= -1e-6, `column ${c} folds at ${i}`);
+    }
+  }
+  assert.ok(frames.some((f) => Number.isFinite(f.maxLeft) || Number.isFinite(f.maxRight)), "the bend is clamped");
 });

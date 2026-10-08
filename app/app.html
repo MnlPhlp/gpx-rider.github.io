@@ -311,6 +311,19 @@
             </div>
           </div>
 
+          <div class="panel-card map-renderer-card">
+            <div class="panel-card-head">
+              <span class="panel-card-title">Map rendering</span>
+              <!-- Virtual world themes go in the optgroup (map/map-init.mjs). -->
+              <select id="mapRendererSelect" aria-label="Map rendering">
+                <option value="google">Google photorealistic</option>
+                <optgroup label="Virtual world">
+                  <option value="virtual">Natural landscape</option>
+                </optgroup>
+              </select>
+            </div>
+          </div>
+
           <div class="panel-card">
             <div class="panel-card-head">
               <span class="panel-card-title">Detected climbs</span>
@@ -795,17 +808,6 @@
           </section>
 
           <section class="settings-panel" data-settings-panel="rendering" hidden>
-            <div class="setting-row">
-              <div class="setting-row-text">
-                <span class="setting-row-label">Map rendering</span>
-                <span class="setting-row-hint">virtual world: a landscape generated from the route's track and elevation, no imagery or API key needed</span>
-              </div>
-              <select id="mapRendererSelect">
-                <option value="google">Google photorealistic 3D</option>
-                <option value="virtual">Virtual world</option>
-              </select>
-            </div>
-            <div class="settings-divider"></div>
             <div class="setting-row">
               <div class="setting-row-text">
                 <span class="setting-row-label">Color route by grade</span>

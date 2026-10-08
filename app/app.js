@@ -31,7 +31,13 @@ import { registerDemoBannerHud, toggleDemoMode } from "./demo/demo-mode.mjs";
 import { copyGalleryMetadata, syncGalleryMetadataExportAvailability, updateGalleryMetadataExport } from "./gallery-ui/gallery-export.mjs";
 import { initGallery } from "./gallery-ui/gallery.mjs";
 import { connectHeartRate, initHeartRate, reconnectSavedHeartRate } from "./trainer/heartrate.mjs";
-import { getStoredMapsApiKey, initMap, registerMinimapHud, saveMapsApiKey } from "./map/map-init.mjs";
+import {
+  getStoredMapsApiKey,
+  initMap,
+  registerMinimapHud,
+  saveMapsApiKey,
+  updateMapRendererFromControl,
+} from "./map/map-init.mjs";
 import {
   adjustHudVisibleCount,
   exitMapFullscreen,
@@ -72,7 +78,6 @@ import {
   toggleProfileSeries,
   updateDisplaySettingsFromControls,
   updateGradeIntervalFromControl,
-  updateMapRendererFromControl,
   updateRenderingSettingsFromControls,
   updateRiderProfileFromControls,
   updateScreenshotSettingsFromControls,

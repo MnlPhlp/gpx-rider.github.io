@@ -550,8 +550,8 @@ terrain_tiles:
 
 # --- Virtual world renderer ----------------------------------------------------
 #
-# An alternative to Google's photorealistic 3D map (Settings › Rendering › Map
-# rendering): a synthetic landscape built from nothing but the route's own track
+# An alternative to Google's photorealistic 3D map (the Map rendering select at
+# the top of the side panel): a synthetic landscape built from nothing but the route's own track
 # and elevations, rendered with three.js (app/world/). The road follows the GPX
 # exactly; everything around it is invented to look plausible — hills that grow
 # with distance from the road, mountains where the route climbs high, forests,
@@ -566,10 +566,25 @@ virtual_world:
 
   # The height field (world-terrain.mjs).
   terrain:
-    # Ground within this distance of the track sits exactly at the GPX
-    # elevation (the road bed).
-    road_half_width_meters: 3.5
-    # The track is resampled to at most this spacing before shaping the ground.
+    # Ground within this distance of the road's centerline sits exactly at the
+    # road's elevation (the flat road bed). Keep it a couple of meters wider
+    # than half of scene.road_width_meters so the asphalt never meets a slope.
+    road_half_width_meters: 5
+    # Beyond the bed, the ground eases from the road's elevation into the
+    # blended terrain over this distance.
+    road_bed_blend_meters: 4
+    # The road's centerline (world-road.mjs): the track de-jittered to within
+    # road_simplify_meters, then a smooth spline through the remaining points
+    # (rounds every bend but passes exactly through the track, so hairpins keep
+    # their apex), sampled every centerline_spacing_meters. Its elevation is
+    # Gaussian-smoothed over road_elevation_smoothing_meters (1 sigma) so grade
+    # changes are gentle. Larger simplify = rounder, looser bends.
+    road_simplify_meters: 1.5
+    centerline_spacing_meters: 2
+    road_elevation_smoothing_meters: 8
+    # The ground is shaped by that centerline simplified to within this
+    # tolerance (meters), with segments at most resample_meters long.
+    centerline_tolerance_meters: 0.15
     resample_meters: 20
     # Route segments within this radius pull the ground toward their own
     # elevation (inverse-distance weighted, so switchback legs blend into one
@@ -687,6 +702,21 @@ virtual_world:
     water: "#3f7396"
     road: "#4a4a4f"
     road_width_meters: 5
+    # The road is a solid strip, not a flat ribbon: its top floats
+    # road_lift_meters above the bed, and its sides slope down and out as an
+    # embankment (embankment_depth below the top, spreading
+    # embankment_spread sideways) that reaches into the ground, so the road
+    # never shows a gap underneath where the terrain mesh dips.
+    road_lift_meters: 0.25
+    road_embankment_depth_meters: 6
+    road_embankment_spread_meters: 4
+    road_embankment: "#8a806c"
+    # Depth pull toward the camera for the road and the rider marker, as a
+    # fraction of view distance (see line_depth_pull): coarse distant terrain
+    # tiles can sit a little above the true ground, and this margin grows with
+    # distance exactly like that error does. The marker gets the same pull so
+    # the road never covers it.
+    road_depth_pull: 0.0015
     # Sun direction: compass bearing it shines from, and elevation above the
     # horizon, in degrees.
     sun_azimuth_degrees: 215
