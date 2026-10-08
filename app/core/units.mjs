@@ -56,6 +56,33 @@ export function formatDuration(totalSeconds, style = "clock") {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
+// A gap of ride time with its sign spelled out ("+0:12" ahead, "−0:08"
+// behind); a gap that rounds to nothing shows no sign at all, never "-0:00".
+export function formatSignedDuration(totalSeconds, style = "clock") {
+  const rounded = Math.round(totalSeconds);
+  const body = formatDuration(Math.abs(totalSeconds), style);
+  if (rounded === 0) return body;
+  return `${rounded > 0 ? "+" : "−"}${body}`;
+}
+
+// A gap along the route: whole meters (or feet) while it is short, the long
+// unit with two decimals once it passes a kilometer (or mile). Signed like
+// formatSignedDuration.
+export function formatGapDistance(meters, distanceUnits) {
+  const magnitude = Math.abs(meters);
+  const imperial = distanceUnits === "imperial";
+  const longUnitMeters = imperial ? KM_PER_MILE * 1000 : 1000;
+  let body;
+  if (magnitude >= longUnitMeters) {
+    body = `${(magnitude / longUnitMeters).toFixed(2)} ${distanceUnitLabel(distanceUnits)}`;
+  } else {
+    const whole = Math.round(imperial ? magnitude * FEET_PER_METER : magnitude);
+    body = `${whole} ${imperial ? "ft" : "m"}`;
+    if (whole === 0) return body;
+  }
+  return `${meters > 0 ? "+" : "−"}${body}`;
+}
+
 export function formatLocalTime(date, timeFormat = "24") {
   const hours = date.getHours();
   const minutes = String(date.getMinutes()).padStart(2, "0");

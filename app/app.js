@@ -54,6 +54,7 @@ import {
 } from "./route/profile-ui.mjs";
 import { persistRideLog, restoreRideLog, rideLogSummary } from "./ride/recorder.mjs";
 import { confirmClearRideData, downloadFitFile, updateRecordingUi } from "./ride/recording-ui.mjs";
+import { registerGhostHud, updateGhostRiderFromControl } from "./replay/ghost-ui.mjs";
 import { loadRecordedRideFile, openStravaExport, updateStravaLinkFromControl } from "./replay/replay-load.mjs";
 import {
   handleReplayScrub,
@@ -152,6 +153,7 @@ async function startApp() {
   initScreenManager(els.mapViewport);
   initTheaterModeUi();
   initReplayUi();
+  registerGhostHud();
   registerClimbBannerHud();
   registerDemoBannerHud();
   registerTrainingMetersHud();
@@ -291,6 +293,7 @@ function bindEvents() {
   els.replayStravaFitBtn.addEventListener("click", openStravaExport);
   els.replayStravaGpxBtn.addEventListener("click", openStravaExport);
   els.replayPreviewBtn.addEventListener("click", toggleTheaterMode);
+  els.ghostRiderInput.addEventListener("change", updateGhostRiderFromControl);
   els.replayPlayButtons.forEach((button) => button.addEventListener("click", toggleReplayPlayback));
   els.replayScrubbers.forEach((scrubber) => scrubber.addEventListener("input", handleReplayScrub));
   els.replaySpeedSelects.forEach((select) => select.addEventListener("change", updateReplaySpeedFromControl));

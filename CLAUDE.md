@@ -60,7 +60,7 @@ pages, `styles.css`, `gallery.json`, and `assets/` stay at the app root.
 | `app/gallery-ui/` | Gallery | `gallery.mjs` (fullscreen ride-gallery overlay; cards from `app/gallery.json`, per-card on-demand 3D preview via each route's `metadata.json#previewCamera`), `gallery-export.mjs` (Export to gallery card: metadata.json snippet with the live camera, clipboard copy) |
 | `app/landing/` | Landing page | `landing.mjs` (public landing page behavior: hero replay over a live 3D map with a faked HUD, then summit orbit, loops; knobs in `LANDING_HERO`, `core/tuning.mjs`), `landing-route.mjs` (static route data the hero replays — marketing data, not app runtime) |
 | `app/demo/` | Demo mode | `demo.mjs` (pure synthetic trainer/HR ride model; tested), `demo-mode.mjs` (demo mode UI: drives the ride from the model, demo chip sync) |
-| `app/replay/` | Ride replay & video export | `fit-decode.mjs` (pure minimal FIT activity decoder — record messages, compressed timestamps, developer fields skipped; tested against `ride/fit.mjs`'s output), `ride-timeline.mjs` (pure model of a recorded ride: ride time with stops squeezed out, distance/telemetry/calories at any elapsed, inverse lookup by distance, profile history, compact (de)serialization; tested), `strava-link.mjs` (pure Strava activity URL parsing + export URL templates; tested), `replay-load.mjs` (recorded-ride intake from FIT or timestamped GPX, replay persistence `gpx-rider:replay`, the Strava link row, the Ride replay card), `replay-mode.mjs` (playback: the replay as a movement source via `advanceReplay`, telemetry into the trainer/strap state fields, transport controls in card + toolbar), `render-hook.mjs` (deterministic render steps: configure the recording view, `stepAppClock` one frame, `waitForMapSteady`; publishes them on `window.gpxRiderRender` under `?render=1` for the headless script), `render-command.mjs` (pure: the headless renderer's command line from the preview's choices; tested), `video-export.mjs` (the recording view's export: camera choice, "Copy render command", and "Record video" — the real-time in-browser recording with intro/outro and the REC chip) |
+| `app/replay/` | Ride replay & video export | `fit-decode.mjs` (pure minimal FIT activity decoder — record messages, compressed timestamps, developer fields skipped; tested against `ride/fit.mjs`'s output), `ride-timeline.mjs` (pure model of a recorded ride: ride time with stops squeezed out, distance/telemetry/calories at any elapsed, inverse lookup by distance, profile history, compact (de)serialization; tested), `strava-link.mjs` (pure Strava activity URL parsing + export URL templates; tested), `replay-load.mjs` (recorded-ride intake from FIT or timestamped GPX, replay persistence `gpx-rider:replay`, the Strava link row, the Ride replay card), `replay-mode.mjs` (playback: the replay as a movement source via `advanceReplay`, telemetry into the trainer/strap state fields, transport controls in card + toolbar), `render-hook.mjs` (deterministic render steps: configure the recording view, `stepAppClock` one frame, `waitForMapSteady`; publishes them on `window.gpxRiderRender` under `?render=1` for the headless script), `render-command.mjs` (pure: the headless renderer's command line from the preview's choices; tested), `video-export.mjs` (the recording view's export: camera choice, "Copy render command", and "Record video" — the real-time in-browser recording with intro/outro and the REC chip), `ghost-race.mjs` (pure: the ghost race's two numbers — the moment in the recording the race joined and the rider's moving time since — to the ghost's position and the signed time/distance gaps; tested), `ghost-ui.mjs` (the ghost rider: race clock advanced by the movement loop, the ghost's 3D beacon + minimap marker, the HUD gap chip under the clock, the switch in the Ride replay card, race persistence with the saved ride) |
 | `app/street-view/` | Street imagery | `frame-index.mjs` (pure route-distance index of imagery frames: spatial-grid projection onto the route, heading-usability filter, `frameForProgress` selection with midpoint hysteresis + dwell, coverage runs; tested), `scan-boxes.mjs` (pure: global-grid search cells along a route, lookahead-first order, quadrant subdivision, Mapillary entity → candidate; tested), `mapillary-source.mjs` (Graph API scan of a route's cells → candidates; fetch pool, subdivide-on-cap, abort, per-cell session cache, typed token error; tested with a fake fetch), `playback-plan.mjs` (pure: the chain of frames a route plays, link classification parallax/cut/gap from image metadata, route position → link + fraction, prefetch window, route plan key; tested), `imagery-store.mjs` (per-image metadata in batches, mesh/photo bytes, IndexedDB cache of plans + bytes with LRU eviction, expired-URL retry, bisect on a refused batch; tested with a fake fetch + in-memory adapter), `sfm-math.mjs` (pure: column-major mat4/vec3, Rodrigues, lookAt/perspective, Catmull-Rom, WGS84⇄ECEF⇄ENU; tested), `sfm-camera.mjs` (pure: one image's camera model — pose, perspective/fisheye/spherical projection with distortion and radial peak, EXIF orientation, basic⇄SfM coordinates, vertical FOV fit, synthesized pose, parallax pair test; tested), `sfm-mesh.mjs` (pure: mesh protobuf decode, vertex clamping, flat plane/sphere fallback, mesh-inside-photo self-check; tested), `sfm-path.mjs` (pure: camera between two poses, linear or Catmull-Rom; tested), `sfm-shaders.mjs` (the projective-texturing GLSL), `sfm-gl.mjs` (WebGL2 wrapper: programs, geometry/texture uploads, draw passes, snapshot cross-fade), `sfm-nodes.mjs` (GPU node cache: photo + mesh → transform/geometry/texture per plan entry, dedupe/abort, LRU eviction, the mesh self-check), `sfm-renderer.mjs` (the renderer: position-driven camera + three-pass blend, cuts, readiness/hold rules, prefetch, attribution), `street-view-plan.mjs` (route lifecycle: cached plan or scan, interim/final plan builds, coverage summary, the asset store), `street-view-ui.mjs` (coordinator: layer + fade, HUD chip, route identity, own refresh loop, renderer mount, `state.streetImagery`), `street-view-settings.mjs` (settings tab sync/apply + coverage/token/cache readouts), `contribute-ui.mjs` (the "Contribute your own imagery" guide dialog). Portions of the `sfm-*` modules are ported from MapillaryJS (MIT) — see `THIRD_PARTY_NOTICES.md`. `route/gpx-export.mjs` (pure GPX serializer; tested) backs its GPX download. |
 
 ## Code organization system — how to keep this codebase clean
@@ -83,7 +83,7 @@ do NOT change the layer rules — a pure module stays pure wherever it lives:
    `ride/eta`, `route/difficulty`, `route/climbs`, `core/units`, `ride/fit`,
    `camera/flyby`, `camera/flyover`, `demo/demo`, `map/route-style`,
    `route/profile`, `trainer/fec`, `replay/fit-decode`, `replay/ride-timeline`,
-   `replay/strava-link`) — no DOM, no app state, no imports from
+   `replay/strava-link`, `replay/ghost-race`) — no DOM, no app state, no imports from
    higher layers. Every one of these is unit-testable; most are tested.
 3. **Hardware/IO modules** (`trainer/trainer`, `trainer/trainer-fec`,
    `trainer/heartrate`, `ride/recorder`, `storage/storage`, `map/screenshot`,
@@ -286,6 +286,31 @@ in place).
   (`state.replay.stravaActivityId`, persisted) — the hook for a future ghost
   rider racing the recording. All knobs live under `ride_replay` in
   `tuning.yaml`.
+- **Ghost rider** (`replay/ghost-race.mjs` pure + tested, `replay/ghost-ui.mjs`).
+  With a timeline attached, every own-power movement tick (pedaling, the
+  simulation, demo mode — `tick`'s non-replay branch) calls
+  `advanceGhostRace(dt)`: the first one starts the race (`state.ghost.active`,
+  `startElapsedSeconds` = the recording's elapsed at the rider's distance via
+  `alignedGhostStart`) and each adds `dt` to `raceSeconds`. The ghost's
+  position is `timelineDistanceAt(start + race)` and the gaps are
+  `ghostRaceStatus`'s — rider minus ghost distance, and the recording's
+  elapsed at the rider's spot minus the ghost's clock — positive = rider
+  ahead, always same-signed. The race runs in *moving time* on both sides
+  (the ghost only advances while the rider does); `resetRide`, a new
+  `attachReplayTimeline`, and `startReplay` call `resetGhostRace`,
+  `seekToMeters` calls `alignGhostToRider` (clock kept, join re-offset so the
+  gap is zero). `ghostVisible()` = timeline && `state.ghostRiderEnabled`
+  (persisted switch in the Ride replay card, default
+  `DEFAULT_GHOST_RIDER_ENABLED`) && replay not playing && not theater mode.
+  The marker is a `Polygon3DElement` cylinder like the rider beacon (via the
+  exported `riderCircleCoordinates`, `drawsOccludedSegments`, rebuilt only
+  past `GHOST_MARKER_UPDATE_METERS`) plus a minimap marker; the chip
+  (`#ghostChip`, left column weight 15 under the clock) is updated on the
+  slow-UI cadence from `updateRideUi`, the marker per frame. Outside the
+  loop, `refreshGhostRider` re-evaluates both (replay pause, theater
+  enter/exit, the switch). `currentRideTimerSeconds` returns the race clock
+  while a race is active. The race state is saved with the ride
+  (`ghostRaceForSave`/`restoreGhostRace`). Knobs: `ride_replay.ghost`.
 - **The movement loop** (`tick` in `movement.mjs`) runs on requestAnimationFrame
   while the tab is visible and falls back to `setTimeout` when hidden, so
   rides keep advancing and recording in background tabs. Per-tick elapsed

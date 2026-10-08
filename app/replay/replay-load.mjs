@@ -8,6 +8,7 @@
 // video-export.mjs.
 
 import { decodeFitActivity } from "./fit-decode.mjs";
+import { resetGhostRace } from "./ghost-ui.mjs";
 import { pauseReplay, syncReplayTransport } from "./replay-mode.mjs";
 import {
   buildRideTimeline,
@@ -90,6 +91,8 @@ export function attachReplayTimeline(timeline, { sourceName = null, persist = tr
   replay.elapsedSeconds = 0;
   replay.lastTelemetryIndex = -1;
   if (hadTimeline) clearReplayTelemetry();
+  // A new recording (or none) is a new race.
+  resetGhostRace();
 
   if (persist) {
     if (timeline) {

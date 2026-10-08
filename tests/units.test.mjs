@@ -6,7 +6,9 @@ import {
   formatDistance,
   formatDuration,
   formatEnergy,
+  formatGapDistance,
   formatLocalTime,
+  formatSignedDuration,
   formatSpeed,
 } from "../app/core/units.mjs";
 
@@ -62,4 +64,19 @@ test("local time includes seconds in 24-hour and 12-hour formats", () => {
   assert.equal(formatLocalTime(morning, "12"), "12:05:09 AM");
   assert.equal(formatLocalTime(afternoon, "24"), "13:07:04");
   assert.equal(formatLocalTime(afternoon, "12"), "1:07:04 PM");
+});
+
+test("signed duration shows a leading sign and never rounds a gap to -0", () => {
+  assert.equal(formatSignedDuration(12, "clock"), "+0:12");
+  assert.equal(formatSignedDuration(-8.4, "clock"), "−0:08");
+  assert.equal(formatSignedDuration(0.2, "clock"), "0:00");
+  assert.equal(formatSignedDuration(3725, "clock"), "+1:02:05");
+});
+
+test("gap distance switches from meters to the long unit past a kilometer", () => {
+  assert.equal(formatGapDistance(120.4, "metric"), "+120 m");
+  assert.equal(formatGapDistance(-1500, "metric"), "−1.50 km");
+  assert.equal(formatGapDistance(0.3, "metric"), "0 m");
+  assert.equal(formatGapDistance(-100, "imperial"), "−328 ft");
+  assert.equal(formatGapDistance(2000, "imperial"), "+1.24 mi");
 });

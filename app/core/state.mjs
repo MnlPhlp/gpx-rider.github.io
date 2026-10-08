@@ -19,6 +19,7 @@ import {
   DEFAULT_CLIMB_ORBIT_SECONDS_PER_REV,
   DEFAULT_DURATION_FORMAT,
   DEFAULT_FIRST_PERSON_CAMERA_HEIGHT_METERS,
+  DEFAULT_GHOST_RIDER_ENABLED,
   DEFAULT_GRADE_INTERVAL_SECONDS,
   DEFAULT_HUD_DOCK_COLLAPSED,
   DEFAULT_HUD_FIELD_ORDER,
@@ -261,6 +262,22 @@ export const state = {
     // Set while the recording waits for the camera to arrive at the rider
     // before starting the replay (replay-mode.mjs#startReplayWhenCameraArrives).
     cameraWait: null,
+  },
+  // Ghost rider (replay/ghost-ui.mjs): racing the loaded recording while the
+  // rider moves under their own power. `enabled` is the persisted switch in
+  // the Ride replay card; the race itself is `active` from the first
+  // own-power tick until a reset / replay playback, `startElapsedSeconds` the
+  // moment in the recording where it joined and `raceSeconds` the rider's
+  // moving time since (both saved with the ride, see ghost-race.mjs). The
+  // rest is the ghost's live 3D beacon, minimap marker and last drawn spot.
+  ghostRiderEnabled: DEFAULT_GHOST_RIDER_ENABLED,
+  ghost: {
+    active: false,
+    startElapsedSeconds: 0,
+    raceSeconds: 0,
+    beacon: null,
+    minimapMarker: null,
+    lastBeaconPoint: null,
   },
   cameraDebugEnabled: DEFAULT_CAMERA_DEBUG_ENABLED,
   cameraDebugCollapsed: false,
@@ -547,6 +564,11 @@ export const els = {
   replayAvgSpeedStat: document.querySelector("#replayAvgSpeedStat"),
   replayChannelsStat: document.querySelector("#replayChannelsStat"),
   replayPreviewBtn: document.querySelector("#replayPreviewBtn"),
+  ghostRiderInput: document.querySelector("#ghostRiderInput"),
+  ghostChip: document.querySelector("#ghostChip"),
+  ghostChipTime: document.querySelector("#ghostChipTime"),
+  ghostChipDistance: document.querySelector("#ghostChipDistance"),
+  ghostChipWord: document.querySelector("#ghostChipWord"),
   replayPlayButtons: Array.from(document.querySelectorAll("[data-replay-play]")),
   replayScrubbers: Array.from(document.querySelectorAll("[data-replay-scrub]")),
   replayTimeOutputs: Array.from(document.querySelectorAll("[data-replay-time]")),

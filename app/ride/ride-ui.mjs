@@ -14,6 +14,7 @@ import { clamp } from "../core/geo.mjs";
 import { updateFullscreenClock } from "../hud/map-hud.mjs";
 import { updateRouteTrail } from "../map/route-trail.mjs";
 import { isMoving } from "./movement.mjs";
+import { updateGhostChip, updateGhostMarker } from "../replay/ghost-ui.mjs";
 import { replayRemainingSeconds } from "../replay/replay-mode.mjs";
 import { renderProfile } from "../route/profile-ui.mjs";
 import { updateRecordingUi } from "./recording-ui.mjs";
@@ -56,6 +57,7 @@ export function updateRideUi(options = {}) {
   } else if (state.mapProvider === "google3d" && state.map) {
     renderRiderDot(point);
   }
+  updateGhostMarker();
   updateRouteTrail();
   updateMapCamera();
 
@@ -124,6 +126,7 @@ export function updateRideUi(options = {}) {
     `${ascentText} / ${formatAltitude(totalAscent, state.distanceUnits)}`;
   els.fsClimbFill.style.width = `${(totalAscent ? clamp(ascentSoFar / totalAscent, 0, 1) : 0) * 100}%`;
   updateFullscreenClock(riddenText, ascentText);
+  updateGhostChip();
   updateFullscreenClimbBanner(point);
   updateTrainingMeters(grade);
 

@@ -1385,6 +1385,30 @@ ride_replay:
   # of the activity, which is exactly why the browser cannot fetch it itself.
   strava_export_url: "https://www.strava.com/activities/{id}/{export}"
 
+  # Ghost rider (replay/ghost-race.mjs + replay/ghost-ui.mjs): while a
+  # recording is loaded and the rider moves under their own power (pedaling,
+  # the simulation, demo mode), the recording rides along as a ghost — a
+  # second marker on the route at where the recording was after the same
+  # moving time — and a HUD chip shows how far ahead or behind the rider is in
+  # time and distance. The race runs in ride time on both sides: the ghost's
+  # clock only advances while the rider moves, so stopping pauses the ghost
+  # too (the recording's own stops were squeezed out when it was loaded).
+  # `enabled` is the default of the switch in the Ride replay card.
+  ghost:
+    enabled: true
+    # The ghost's 3D marker: a translucent extruded cylinder (the same kind of
+    # geometry as the rider beacon) tall enough to spot when the camera is
+    # not on it, drawn through trees and buildings. The minimap uses the same
+    # color for its ghost marker. The marker's polygon is only rebuilt once the
+    # ghost has moved marker_update_meters (re-tessellating every frame is
+    # wasted work at a distance).
+    beacon:
+      color: "#38bdf8"
+      diameter_meters: 4
+      height_meters: 30
+      opacity: 0.5
+    marker_update_meters: 0.5
+
 # --- Landing page hero replay ------------------------------------------------
 #
 # The public landing page (app/index.html, driven by app/landing/landing.mjs)

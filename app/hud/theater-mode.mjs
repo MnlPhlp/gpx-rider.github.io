@@ -17,6 +17,7 @@
 
 import { rebuildRouteStyle } from "../map/route-render.mjs";
 import { renderProfile } from "../route/profile-ui.mjs";
+import { refreshGhostRider } from "../replay/ghost-ui.mjs";
 import { applyReplayCameraChoice, syncRecordButton, stopReplayVideoExport } from "../replay/video-export.mjs";
 import { els, state, updateProgressLabel } from "../core/state.mjs";
 import {
@@ -139,6 +140,8 @@ export function enterTheaterMode() {
   reportTheaterModeSize();
   // The route line becomes the ridden-only trail (if "Route ahead" is hidden).
   rebuildRouteStyle();
+  // The recording view is for replay videos: the ghost steps off the map.
+  refreshGhostRider();
 }
 
 export function exitTheaterMode() {
@@ -152,6 +155,7 @@ export function exitTheaterMode() {
   syncTheaterToolbar();
   if (state.route.length) renderProfile();
   rebuildRouteStyle();
+  refreshGhostRider();
 }
 
 export function closeTheaterModeOnOutsideClick(event) {

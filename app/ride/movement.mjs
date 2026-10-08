@@ -34,6 +34,7 @@ import {
   seekReplayToSeconds,
   syncReplayToProgress,
 } from "../replay/replay-mode.mjs";
+import { advanceGhostRace, alignGhostToRider, resetGhostRace } from "../replay/ghost-ui.mjs";
 import { handleReplayFinishedWhileRecording } from "../replay/video-export.mjs";
 import { persistRideLog, recordRideTick } from "./recorder.mjs";
 import { updateRecordingUi } from "./recording-ui.mjs";
@@ -218,6 +219,7 @@ export function resetRide() {
   pauseReplay({ silent: true });
   state.progressMeters = 0;
   seekReplayToSeconds(0);
+  resetGhostRace();
   state.lastTick = nowMs();
   // A reset while stationary honors the chosen camera surface: overview stays
   // overview, rider camera stays with the rider.
@@ -257,6 +259,8 @@ function tick(now) {
   } else {
     const metersAdvanced = metersPerSecond * elapsedSeconds;
     state.progressMeters = Math.min(totalDistance, state.progressMeters + metersAdvanced);
+    // Moving under own power with a recording loaded: the ghost rides along.
+    advanceGhostRace(elapsedSeconds);
   }
   if (state.demoModeActive) {
     advanceDemoTelemetry(0, gradeAt(state.route, state.progressMeters), state.progressMeters - previousProgress);
@@ -333,8 +337,9 @@ export function seekToMeters(meters) {
   const wasMoving = isMoving();
   state.progressMeters = clamp(meters, 0, routeTotalDistance(state.route));
   // A loaded recording follows the rider: the playhead jumps to the moment
-  // the ride reached this distance.
+  // the ride reached this distance — and so does the ghost, gap reset to zero.
   syncReplayToProgress();
+  alignGhostToRider();
   state.lastTick = nowMs();
   // A teleport while parked in the rider camera (clicking the elevation
   // profile) flies the transition arc from the old camera pose to the new

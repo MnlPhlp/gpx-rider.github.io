@@ -6,6 +6,7 @@
 import { stopDemoMode, syncDemoModeUi } from "../demo/demo-mode.mjs";
 import { isHeartRateConnected } from "../trainer/heartrate.mjs";
 import { setPedaling, updatePedalingFromSpeed } from "./movement.mjs";
+import { ghostRaceSeconds } from "../replay/ghost-ui.mjs";
 import { replayCaloriesKcal } from "../replay/replay-mode.mjs";
 import { rideLogSummary } from "./recorder.mjs";
 import { gradeAt } from "../route/route.mjs";
@@ -142,6 +143,9 @@ export function currentRideTimerSeconds() {
   if (state.demoModeActive && state.demoModel) {
     return state.demoModel.elapsedSeconds;
   }
+  // Racing the recording: the rider's own moving time since the race began.
+  const raceSeconds = ghostRaceSeconds();
+  if (raceSeconds !== null) return raceSeconds;
   // The replay's elapsed is the playhead in ride time.
   if (state.replay.timeline) return state.replay.elapsedSeconds;
   if (state.demoHistorySamples.length && state.demoTimerSeconds > 0) {

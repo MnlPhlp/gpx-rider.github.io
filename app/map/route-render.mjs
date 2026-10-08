@@ -344,7 +344,8 @@ function riderDotSizeFactor() {
   return state.overviewActive || state.cameraMode === "overview" ? RIDER_DOT_OVERVIEW_SCALE_FACTOR : 1;
 }
 
-function riderCircleCoordinates(center, radiusMeters, altitude = 0, stepDegrees = 6) {
+// Also used by the ghost rider's beacon (replay/ghost-ui.mjs).
+export function riderCircleCoordinates(center, radiusMeters, altitude = 0, stepDegrees = 6) {
   // Walking compass bearings upward (N, E, S, W, ...) traces the ring
   // clockwise as seen from above. A filled polygon's normal follows the
   // right-hand rule from its vertex order, so a clockwise-from-above ring

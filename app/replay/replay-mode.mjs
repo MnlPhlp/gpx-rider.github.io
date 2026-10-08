@@ -12,6 +12,7 @@
 import { returnToRiderCamera } from "../camera/overview-camera.mjs";
 import { nowMs } from "../core/clock.mjs";
 import { stopDemoMode } from "../demo/demo-mode.mjs";
+import { refreshGhostRider, resetGhostRace } from "./ghost-ui.mjs";
 import { updateFullscreenLocalTime } from "../hud/map-hud.mjs";
 import { ensureMovementLoop, updateStartButton } from "../ride/movement.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
@@ -65,6 +66,8 @@ export function startReplay() {
   if (replay.elapsedSeconds >= replay.timeline.durationSeconds) seekReplayToSeconds(0);
   // A start by any route supersedes a pending wait for the camera.
   replay.cameraWait = null;
+  // The recording now drives the rider itself; there is no ghost to race.
+  resetGhostRace();
   replay.playing = true;
   replay.lastTelemetryIndex = -1;
   applyReplayTelemetry(replay.elapsedSeconds);
@@ -115,6 +118,8 @@ export function pauseReplay({ silent = false } = {}) {
   if (!replay.playing) return;
   replay.playing = false;
   syncReplayTransport();
+  // The rider may take over now: the ghost is back on the course.
+  refreshGhostRider();
   saveRide();
   if (!silent) updateProgressLabel("Replay paused.");
 }

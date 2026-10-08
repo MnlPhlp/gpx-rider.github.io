@@ -883,6 +883,57 @@ html.render-mode .theater-toolbar {
   color: var(--accent);
 }
 
+/* under the clock: the gap to the ghost rider (positive = you are ahead) */
+.ghost-chip {
+  --ghost-color: #38bdf8;
+  border-color: color-mix(in srgb, var(--ghost-color) 45%, transparent);
+}
+
+.ghost-chip-tag {
+  font: 700 10px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ghost-color);
+}
+
+.ghost-chip-time {
+  font: 600 17px/1 var(--font-num);
+  color: #fff;
+}
+
+.ghost-chip-dist {
+  font: 600 15px/1 var(--font-num);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.ghost-chip-word {
+  font: 600 11px/1 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.ghost-chip.ahead .ghost-chip-time,
+.ghost-chip.ahead .ghost-chip-word {
+  color: var(--green);
+}
+
+.ghost-chip.behind .ghost-chip-time,
+.ghost-chip.behind .ghost-chip-word {
+  color: var(--red);
+}
+
+.ghost-chip.finished .ghost-chip-tag::after {
+  content: " · finished";
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.replay-ghost-row {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
 .fs-training-meters {
   display: grid;
   width: 184px;

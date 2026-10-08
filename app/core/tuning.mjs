@@ -317,6 +317,9 @@ export const RIDE_REPLAY_DEFAULT_SPEED = req("ride_replay", "default_speed");
 export const RIDE_REPLAY_VIDEO = req("ride_replay", "video");
 export const RIDE_REPLAY_RENDER = req("ride_replay", "render");
 export const STRAVA_ACTIVITY_EXPORT_URL = req("ride_replay", "strava_export_url");
+export const DEFAULT_GHOST_RIDER_ENABLED = req("ride_replay", "ghost", "enabled");
+export const GHOST_BEACON = req("ride_replay", "ghost", "beacon");
+export const GHOST_MARKER_UPDATE_METERS = req("ride_replay", "ghost", "marker_update_meters");
 
 // Landing page hero replay
 export const LANDING_HERO = req("landing_hero");

@@ -134,6 +134,16 @@
               <span id="fsClockAscent" class="fs-clock-ascent" title="Current ascent">--</span>
             </div>
 
+            <!-- under the clock: the gap to the ghost rider (replay/ghost-ui.mjs) -->
+            <div id="ghostChip" class="fs-clock ghost-chip" hidden aria-live="polite">
+              <span class="ghost-chip-tag">Ghost</span>
+              <span class="fs-clock-sep"></span>
+              <span id="ghostChipTime" class="ghost-chip-time">0:00</span>
+              <span class="fs-clock-sep"></span>
+              <span id="ghostChipDistance" class="ghost-chip-dist">0 m</span>
+              <span id="ghostChipWord" class="ghost-chip-word">level</span>
+            </div>
+
             <div id="fullscreenTrainingMeters" class="fs-training-meters" hidden aria-live="polite">
               <div id="powerMeter" class="fs-zone-meter" data-zone-meter="power">
                 <span class="fs-zone-label">Power</span>
@@ -518,6 +528,16 @@
                 <input type="range" class="replay-scrub" data-replay-scrub min="0" max="1" step="1" value="0" aria-label="Replay position" disabled>
                 <span class="replay-time" data-replay-time>--</span>
                 <select class="replay-speed" data-replay-speed aria-label="Replay speed" disabled></select>
+              </div>
+              <div class="setting-row replay-ghost-row">
+                <div class="setting-row-text">
+                  <span class="setting-row-label">Ghost rider</span>
+                  <span class="setting-row-hint">race this recording while you ride — it shows as a blue beacon, with your time and distance gap on the map</span>
+                </div>
+                <label class="switch">
+                  <input id="ghostRiderInput" type="checkbox" checked>
+                  <span class="switch-track"><span class="switch-knob"></span></span>
+                </label>
               </div>
             </div>
           </div>

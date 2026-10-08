@@ -19,6 +19,12 @@ import { normalizeHudOrder } from "../hud/map-hud.mjs";
 import { updateStartButton } from "../ride/movement.mjs";
 import { enterOverviewMode } from "../camera/overview-camera.mjs";
 import { renderProfile } from "../route/profile-ui.mjs";
+import {
+  applyGhostRiderSetting,
+  ghostRaceForSave,
+  restoreGhostRace,
+  syncGhostRiderControls,
+} from "../replay/ghost-ui.mjs";
 import { restoreReplay } from "../replay/replay-load.mjs";
 import { syncReplayToProgress } from "../replay/replay-mode.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
@@ -251,6 +257,10 @@ export function restoreSettings() {
     state.mapillaryUsername = settings.mapillaryUsername.trim().slice(0, 128);
   }
 
+  if (typeof settings?.ghostRiderEnabled === "boolean") {
+    state.ghostRiderEnabled = settings.ghostRiderEnabled;
+  }
+
   if (typeof settings?.cameraDebugEnabled === "boolean") {
     state.cameraDebugEnabled = settings.cameraDebugEnabled;
   }
@@ -338,6 +348,8 @@ export function restoreSettings() {
   applyDisplaySettings();
   syncStreetImageryControls();
   applyStreetImagerySetting();
+  syncGhostRiderControls();
+  applyGhostRiderSetting();
 }
 
 export function saveSettings() {
@@ -380,6 +392,7 @@ export function saveSettings() {
     streetImageryEnabled: state.streetImageryEnabled,
     mapillaryToken: state.mapillaryToken,
     mapillaryUsername: state.mapillaryUsername,
+    ghostRiderEnabled: state.ghostRiderEnabled,
     cameraDebugEnabled: state.cameraDebugEnabled,
     cameraDebugCollapsed: state.cameraDebugCollapsed,
     theaterHideClock: state.theaterHideClock,
@@ -447,6 +460,8 @@ export function restoreSavedRide() {
   // its playhead is put where the saved progress stands.
   restoreReplay();
   syncReplayToProgress();
+  // A race against that recording resumes where it was left off.
+  restoreGhostRace(savedRide.ghost);
   updateRideUi({ force: true });
   els.startBtn.disabled = false;
   els.resetBtn.disabled = false;
@@ -478,6 +493,7 @@ export function saveRide() {
     name: state.routeName,
     galleryMetadata: state.galleryMetadata,
     progressMeters: Math.round(state.progressMeters),
+    ghost: ghostRaceForSave(),
     speedKph: Number(els.speedInput.value),
     savedAt: new Date().toISOString(),
   });
