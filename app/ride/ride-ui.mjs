@@ -28,6 +28,7 @@ import {
   routeTotalDistance,
 } from "../route/route.mjs";
 import {
+  markerPointAt,
   removeRiderMarker,
   renderRiderDot,
   syncRouteLineVisibility,
@@ -54,9 +55,9 @@ export function updateRideUi(options = {}) {
   if (isFirstPersonCameraView()) {
     removeRiderMarker();
   } else if (state.riderDot) {
-    updateRiderDot(point);
+    updateRiderDot(markerPointAt());
   } else if (state.mapProvider && state.map) {
-    renderRiderDot(point);
+    renderRiderDot(markerPointAt());
   }
   updateGhostMarker();
   updateRouteTrail();

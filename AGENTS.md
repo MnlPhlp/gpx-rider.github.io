@@ -236,8 +236,11 @@ in place).
   centerline pose from `createRoadTrack`) instead of the raw track, and
   `route-render.mjs#syncRouteLineVisibility` (per tick from `updateRideUi`)
   hides the route lines (`isRouteLine` overlays) in first person. Google mode
-  is unchanged on both counts. The rider dot and the ghost still sit on the
-  raw track. The worker gets its config by
+  is unchanged on both counts. The 3D markers follow suit: every rider-dot /
+  beacon / ghost-beacon placement goes through `route-render.mjs#markerPointAt
+  (progress)` (road pose in the virtual world, raw track otherwise), as do the
+  finish-orbit center and the manual-drag offset capture; the 2D minimap
+  markers stay on the raw track. The worker gets its config by
   message (it cannot read the import map, so world-tile-worker's imports must
   stay three.js-free). Rust/WASM was offered by the owner for performance if
   tile building ever can't keep up; it isn't used yet (would add a build).

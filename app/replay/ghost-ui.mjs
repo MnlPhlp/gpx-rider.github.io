@@ -9,7 +9,7 @@
 
 import { haversine } from "../core/geo.mjs";
 import { registerHudComponent } from "../hud/screen-manager.mjs";
-import { riderCircleCoordinates } from "../map/route-render.mjs";
+import { markerPointAt, riderCircleCoordinates } from "../map/route-render.mjs";
 import { interpolateRoutePoint } from "../route/route.mjs";
 import { els, state } from "../core/state.mjs";
 import { saveSettings } from "../storage/persistence.mjs";
@@ -114,9 +114,8 @@ export function updateGhostMarker() {
     removeGhostMarker();
     return;
   }
-  const point = interpolateRoutePoint(state.route, status.ghostMeters);
-  updateGhostBeacon(point);
-  updateGhostMinimapMarker(point);
+  updateGhostBeacon(markerPointAt(status.ghostMeters));
+  updateGhostMinimapMarker(interpolateRoutePoint(state.route, status.ghostMeters));
 }
 
 function updateGhostBeacon(point) {

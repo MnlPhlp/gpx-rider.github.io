@@ -34,6 +34,7 @@ import { bearing, clamp, lerp } from "../core/geo.mjs";
 import { renderProfile } from "../route/profile-ui.mjs";
 import { interpolateRoutePoint } from "../route/route.mjs";
 import {
+  markerPointAt,
   rebuildRouteStyle,
   removeRiderMarker,
   renderRiderDot,
@@ -148,7 +149,8 @@ export function enterOverviewMode({
 export function enterFinishOrbit() {
   if (!DEFAULT_FINISH_ORBIT_ENABLED || !state.route.length || !state.map) return;
 
-  const finishPoint = interpolateRoutePoint(state.route, state.progressMeters);
+  // Orbit the marker's spot (on the virtual world's road, see markerPointAt).
+  const finishPoint = markerPointAt();
   if (!finishPoint) return;
   const previousPoint = interpolateRoutePoint(state.route, Math.max(0, state.progressMeters - HEADING_SAMPLE_METERS));
   const heading = bearing(previousPoint, finishPoint);
@@ -240,7 +242,7 @@ export function returnToRiderCamera({ transition = true } = {}) {
   if (isFirstPersonCameraView()) {
     removeRiderMarker();
   } else if (!state.riderDot) {
-    renderRiderDot(interpolateRoutePoint(state.route, state.progressMeters));
+    renderRiderDot(markerPointAt());
   }
   // Fly the physical transition arc back to the rider camera when one fits
   // (it carries FOV and roll with it); otherwise (or when the caller opted
@@ -354,7 +356,7 @@ function ensureOverviewAnimationLoop() {
     }
     stepOverviewAnimation(nowMs());
     // Keep the ground dot's apparent size steady while the camera moves.
-    if (state.riderDot) updateRiderDot(interpolateRoutePoint(state.route, state.progressMeters));
+    if (state.riderDot) updateRiderDot(markerPointAt());
     requestAnimationFrame(step);
   };
   requestAnimationFrame(step);

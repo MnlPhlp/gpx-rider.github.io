@@ -64,8 +64,7 @@ export function renderRoute() {
   clearRouteFromMap();
   // The virtual world builds its landscape from the route itself.
   if (state.mapProvider === "virtual") state.map.setWorldRoute(state.route);
-  const currentPoint = interpolateRoutePoint(state.route, state.progressMeters);
-  renderGoogle3DRoute(currentPoint);
+  renderGoogle3DRoute(markerPointAt());
 }
 
 export function renderMinimapRoute() {
@@ -216,6 +215,15 @@ export function currentRouteLinePoints() {
   ]
     .sort((a, b) => a.distance - b.distance)
     .filter((point, index, all) => index === 0 || point.distance !== all[index - 1].distance);
+}
+
+// Where the 3D markers (rider dot, beacon, ghost) stand at a ride progress:
+// on the virtual world's generated road — which rounds the track's corners
+// and is what its cameras ride — or on the track itself on Google's map. The
+// 2D minimap always keeps the raw track.
+export function markerPointAt(progressMeters = state.progressMeters) {
+  const onRoad = state.mapProvider === "virtual" ? state.map.roadPoseAt(progressMeters) : null;
+  return onRoad ?? interpolateRoutePoint(state.route, progressMeters);
 }
 
 export function renderRiderDot(point) {
@@ -386,5 +394,5 @@ export function rebuildRiderBeacon() {
   renderRiderBeacon();
   if (!state.route.length || !state.riderBeacon) return;
   state.lastRiderBeacon = null;
-  updateRiderDot(interpolateRoutePoint(state.route, state.progressMeters));
+  updateRiderDot(markerPointAt());
 }

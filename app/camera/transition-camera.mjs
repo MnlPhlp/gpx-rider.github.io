@@ -31,8 +31,8 @@ import { createEllipseFlyby, createFigureEightFlyover } from "./flyby.mjs";
 import { orbitCamera } from "./flyover.mjs";
 import { updateGalleryMetadataExport } from "../gallery-ui/gallery-export.mjs";
 import { bearing, clamp, haversine, toRad } from "../core/geo.mjs";
-import { gradeAt, interpolateRoutePoint, routeTotalDistance } from "../route/route.mjs";
-import { updateRiderDot } from "../map/route-render.mjs";
+import { gradeAt, routeTotalDistance } from "../route/route.mjs";
+import { markerPointAt, updateRiderDot } from "../map/route-render.mjs";
 import { els, state } from "../core/state.mjs";
 import { CAMERA_TRANSITION, DEFAULT_MAP_FOV_DEGREES, ELLIPSE_FLYBY } from "../core/tuning.mjs";
 
@@ -167,7 +167,7 @@ function ensureCameraTransitionLoop() {
     applyTransitionPose(pose);
     // Keep the ground dot's apparent size steady while the camera flies.
     if (state.riderDot && state.route.length) {
-      updateRiderDot(interpolateRoutePoint(state.route, state.progressMeters));
+      updateRiderDot(markerPointAt());
     }
     if (pose.done) {
       state.cameraTransition = null;

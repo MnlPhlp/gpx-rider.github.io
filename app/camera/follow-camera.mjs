@@ -33,7 +33,7 @@ import {
   maxElevationNear,
   routeBearingAt,
 } from "../route/route.mjs";
-import { updateRiderDot } from "../map/route-render.mjs";
+import { markerPointAt, updateRiderDot } from "../map/route-render.mjs";
 import { terrainElevationAt } from "../map/terrain-tiles.mjs";
 import { state } from "../core/state.mjs";
 import {
@@ -278,7 +278,7 @@ export function ensureCameraFlightLoop() {
     }
     const settled = stepCameraFlight(nowMs());
     // Keep the ground dot's apparent size steady while the camera flies.
-    if (state.riderDot) updateRiderDot(interpolateRoutePoint(state.route, state.progressMeters));
+    if (state.riderDot) updateRiderDot(markerPointAt());
     if (settled) {
       state.cameraFlightLoopActive = false;
       return;
@@ -524,7 +524,7 @@ function startInteractionDotResizeLoop() {
       return;
     }
     if (state.route.length && state.riderDot) {
-      updateRiderDot(interpolateRoutePoint(state.route, state.progressMeters));
+      updateRiderDot(markerPointAt());
     }
     requestAnimationFrame(step);
   };
@@ -574,7 +574,9 @@ function captureManualCameraSettings() {
   const range = Number(state.map.range);
   const heading = Number(state.map.heading);
   const centerAltitude = Number(state.map.center?.altitude);
-  const rider = state.route.length ? interpolateRoutePoint(state.route, state.progressMeters) : null;
+  // Measured from where the camera centers the rider (the generated road in
+  // the virtual world), so a drag there captures no phantom offset.
+  const rider = state.route.length ? markerPointAt() : null;
 
   let capturedTilt = Number.isFinite(tilt) ? clamp(tilt, CAMERA_TILT_MIN, CAMERA_TILT_MAX) : state.cameraAngleDegrees;
   let capturedRange = Number.isFinite(range) && range > 0
