@@ -20,6 +20,8 @@ import {
   baseNodes,
   buildTileArrays,
   createQuadtree,
+  nodeKey,
+  protectedAncestors,
   resolveDisplay,
   selectLeaves,
 } from "../app/world/world-tiles.mjs";
@@ -186,6 +188,35 @@ test("tile arrays line up with the height field and carry skirts and trees", () 
   for (let k = 0; k < tile.trees.length / 6; k++) {
     const sample = terrain.sample(tile.trees[k * 6] + tile.cx, tile.trees[k * 6 + 2] + tile.cz, {});
     assert.ok(sample.roadDistance >= VIRTUAL_WORLD.surface.trees.road_clearance_meters);
+  }
+});
+
+test("a tile still building is covered by its loaded children, never by a far coarser ancestor", () => {
+  const tree = createQuadtree({ minX: -8000, maxX: 8000, minZ: -8000, maxZ: 8000 }, 200);
+  // The camera moved away: level-3 tiles are wanted where their level-4
+  // children were drawn a moment ago. One level-3 tile isn't built yet.
+  const leaves = selectLeaves(tree, { x: 0, z: 0, heightAboveGround: 10 }, { splitFactor: 2 });
+  const missing = leaves.find((leaf) => leaf.level === 3);
+  assert.ok(missing, "a level-3 leaf");
+  const childKeys = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([di, dj]) => nodeKey(4, missing.i * 2 + di, missing.j * 2 + dj));
+  const ready = new Set([...leaves.map((leaf) => leaf.key).filter((key) => key !== missing.key), ...childKeys, ...baseNodes(tree, 1).map((n) => n.key)]);
+  const display = resolveDisplay(tree, leaves, (key) => ready.has(key));
+  const keys = new Set(display.map((node) => node.key));
+  for (const key of childKeys) assert.ok(keys.has(key), `child ${key} drawn`);
+  // Everything else exactly as wanted, and the root covered once.
+  assert.equal(display.length, leaves.length - 1 + 4);
+  const area = display.reduce((sum, node) => sum + node.size * node.size, 0);
+  assert.ok(Math.abs(area - tree.size * tree.size) < 1e-3);
+});
+
+test("protectedAncestors keeps every displayed tile's fallback chain", () => {
+  const tree = createQuadtree({ minX: -8000, maxX: 8000, minZ: -8000, maxZ: 8000 }, 200);
+  const leaves = selectLeaves(tree, { x: 0, z: 0, heightAboveGround: 10 }, { splitFactor: 2 });
+  const keep = protectedAncestors(leaves);
+  for (const leaf of leaves) {
+    for (let level = leaf.level - 1, i = leaf.i >> 1, j = leaf.j >> 1; level >= 0; level--, i >>= 1, j >>= 1) {
+      assert.ok(keep.has(nodeKey(level, i, j)));
+    }
   }
 });
 
@@ -466,4 +497,88 @@ test("road track: the camera pose rides the generated road, not the raw track", 
   // Up the first leg (toward -z) the heading is north; down the second, south.
   assert.ok(Math.abs(track.poseAt(30).heading - 0) < 2 || Math.abs(track.poseAt(30).heading - 360) < 2);
   assert.ok(Math.abs(track.poseAt(distance - 30).heading - 180) < 2);
+});
+
+// A road traversing a steep hillside: flat at 500 m heading east along
+// 46.5° N, the real ground rising 0.8 m per meter to the north — a cut into
+// the slope on the uphill side, an embankment on the downhill one.
+function hillsideWorld() {
+  const lat0 = 46.5;
+  const route = Array.from({ length: 41 }, (_, i) => ({ lat: lat0, lng: 8.0 + i * 0.0013, ele: 500 }));
+  const box = { south: 46.4, west: 7.9, north: 46.6, east: 8.15 };
+  const size = 16;
+  const tiles = demTilesForBox(box, { maxZoom: 12, maxTiles: 64, tileSize: size }).map((tile) => {
+    const data = new Float32Array(size * size);
+    for (let py = 0; py < size; py++) {
+      const gy = tile.y * size + py + 0.5;
+      const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * gy) / (2 ** tile.z * size)))) * 180) / Math.PI;
+      data.fill(500 + 0.8 * (lat - lat0) * 111195, py * size, (py + 1) * size);
+    }
+    return { ...tile, size, data };
+  });
+  const terrain = createWorldTerrain(route, VIRTUAL_WORLD.terrain, { dem: createDem(tiles) });
+  return { terrain, surface: createSurface(terrain, VIRTUAL_WORLD.surface) };
+}
+
+// The height of a tile's drawn mesh at (x, z): the grid's own triangulation
+// (buildTileArrays: diagonal from the top-right to the bottom-left corner).
+function meshHeightAt(tile, rect, segments, x, z) {
+  const step = rect.size / segments;
+  // (Clamped to the tile: lattice jitter can put a tree just past its edge.)
+  const fx = Math.min(segments, Math.max(0, (x - rect.x0) / step));
+  const fz = Math.min(segments, Math.max(0, (z - rect.z0) / step));
+  const c = Math.min(segments - 1, Math.max(0, Math.floor(fx)));
+  const r = Math.min(segments - 1, Math.max(0, Math.floor(fz)));
+  const u = fx - c;
+  const v = fz - r;
+  const h = (cc, rr) => tile.positions[(rr * (segments + 1) + cc) * 3 + 1];
+  if (u + v <= 1) return h(c, r) + (h(c + 1, r) - h(c, r)) * u + (h(c, r + 1) - h(c, r)) * v;
+  return h(c + 1, r + 1) + (h(c, r + 1) - h(c + 1, r + 1)) * (1 - u) + (h(c + 1, r) - h(c + 1, r + 1)) * (1 - v);
+}
+
+test("real terrain: no detail level draws the ground over the road, trees sit on the mesh", () => {
+  const { terrain, surface } = hillsideWorld();
+  const segments = VIRTUAL_WORLD.tiles.segments;
+  const roadTop = 500 + VIRTUAL_WORLD.scene.road_lift_meters;
+  const halfRoad = VIRTUAL_WORLD.scene.road_width_meters / 2;
+  for (const size of [200, 400, 800, 1600, 3200]) {
+    // The road crosses the tile off its grid lines.
+    const rect = { x0: -size * 0.43, z0: -size * 0.37, size };
+    const tile = buildTileArrays(terrain, surface, rect, {
+      segments,
+      skirtFactor: VIRTUAL_WORLD.tiles.skirt_factor,
+      treeMaxTileMeters: VIRTUAL_WORLD.tiles.tree_max_tile_meters,
+      roadClearSteps: VIRTUAL_WORLD.tiles.road_clear_steps,
+    });
+    let worst = -Infinity;
+    for (let x = rect.x0 + 1; x < rect.x0 + size - 1; x += size / 97) {
+      for (const offset of [-halfRoad, 0, halfRoad]) {
+        const z = terrain.projection.toLocal(46.5, 8.0).z + offset;
+        worst = Math.max(worst, meshHeightAt(tile, rect, segments, x, z) - roadTop);
+      }
+    }
+    assert.ok(worst <= 0, `${size} m tile: ground ${worst.toFixed(2)} m over the road`);
+    for (let k = 0; k < tile.trees.length / 6; k++) {
+      const x = tile.trees[k * 6] + tile.cx;
+      const z = tile.trees[k * 6 + 2] + tile.cz;
+      const ground = meshHeightAt(tile, rect, segments, x, z);
+      assert.ok(Math.abs(tile.trees[k * 6 + 1] - ground) < 0.01, `tree on the mesh (${tile.trees[k * 6 + 1]} vs ${ground})`);
+    }
+  }
+});
+
+test("real terrain: a flat shoulder beside the road, then a gentle cut into the slope", () => {
+  const { terrain } = hillsideWorld();
+  const config = VIRTUAL_WORLD.terrain;
+  const z0 = terrain.projection.toLocal(46.5, 8.0).z;
+  const shoulder = config.road_half_width_meters + config.real.road_shoulder_meters;
+  // Uphill is north (-z).
+  for (let d = 0; d <= shoulder; d += 0.5) {
+    assert.ok(Math.abs(terrain.heightAt(500, z0 - d) - 500) < 0.01, `flat at ${d} m`);
+  }
+  const rise = (d) => terrain.heightAt(500, z0 - d) - 500;
+  assert.ok(rise(shoulder + 5) < 2, `${rise(shoulder + 5)}`);
+  assert.ok(rise(shoulder + 10) < 5, `${rise(shoulder + 10)}`);
+  // Well away from the road the real hillside is back.
+  assert.ok(Math.abs(rise(200) - 0.8 * 200) < 6, `${rise(200)}`);
 });

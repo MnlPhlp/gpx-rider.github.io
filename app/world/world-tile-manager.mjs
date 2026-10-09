@@ -3,14 +3,19 @@
 // arrays it returns into three.js meshes with instanced trees, shows the LOD
 // display set (falling back to a coarser loaded ancestor while finer tiles
 // build), and evicts least-recently-used tiles past the cache cap. For a
-// real-terrain style it forwards the elevation tiles the worker loaded
-// (`onDem`), so the main thread can shape its ground from the same data.
+// real-world style it forwards the elevation tiles the worker loaded
+// (`onDem`), so the main thread can shape its ground from the same data, and
+// runs the OpenStreetMap layer (world-osm-layer.mjs): every OSM tile the
+// worker announces marks the terrain tiles under it stale (their ground
+// colors and trees change), and the displayed stale ones are rebuilt once no
+// missing tile is waiting.
 
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 import { BUILDING_STRIDE } from "./world-city.mjs";
-import { baseNodes, createQuadtree, resolveDisplay, selectLeaves } from "./world-tiles.mjs";
+import { createOsmLayer } from "./world-osm-layer.mjs";
+import { baseNodes, createQuadtree, protectedAncestors, resolveDisplay, selectLeaves } from "./world-tiles.mjs";
 
 // `style` is the { theme, terrain } entry from virtual_world.styles, `theme`
 // its resolved look, `terrainMaterial` the theme's ground material and
@@ -33,16 +38,33 @@ export function createTileManager({
   worker.onmessage = ({ data }) => {
     if (data.worldId !== worldId) return;
     if (data.type === "dem") onDem(data.tiles);
-    else receiveTile(data);
+    else if (data.type === "osm-tile") receiveOsmTile(data);
+    else if (data.type === "osm-mesh") {
+      osm?.receiveMesh(data.key, data.meshes);
+      onTileReady();
+    } else receiveTile(data);
   };
   worker.onerror = (event) => console.error("[virtual-world] tile worker failed", event.message ?? event);
 
+  const osm = style.terrain === "real" && config.osm
+    ? createOsmLayer({
+      scene,
+      config: config.osm,
+      theme,
+      requestMesh: (key) => worker.postMessage({ type: "osm-mesh", worldId, key }),
+    })
+    : null;
+  let focus = null;
+
   let world = null;
   let worldId = 0;
-  const cache = new Map(); // key → { group, lastUsed }
-  const inflight = new Set();
+  const cache = new Map(); // key → { group, lastUsed, rect, osmVersion, stale }
+  const inflight = new Map(); // key → rect
   const boostCache = new Map();
   let displayed = new Set();
+  // Ancestors of the displayed tiles: their fallback while a tile rebuilds,
+  // kept out of the LRU eviction.
+  let fallbackKeys = new Set();
   let frame = 0;
 
   function setWorld(terrain, route) {
@@ -52,6 +74,8 @@ export function createTileManager({
     inflight.clear();
     boostCache.clear();
     displayed = new Set();
+    osm?.clear();
+    focus = null;
     world = {
       terrain,
       tree: createQuadtree(terrain.bounds, tilesConfig.min_tile_meters),
@@ -103,13 +127,7 @@ export function createTileManager({
     missing.sort((a, b) => a.distance - b.distance);
     for (const node of missing) {
       if (inflight.size >= tilesConfig.max_inflight) break;
-      inflight.add(node.key);
-      worker.postMessage({
-        type: "tile",
-        worldId,
-        key: node.key,
-        rect: { x0: node.x0, z0: node.z0, size: node.size },
-      });
+      requestTile(node.key, { x0: node.x0, z0: node.z0, size: node.size });
     }
 
     const display = resolveDisplay(world.tree, leaves, (key) => cache.has(key));
@@ -130,12 +148,64 @@ export function createTileManager({
       if (entry) entry.lastUsed = frame;
     }
     displayed = next;
+    fallbackKeys = protectedAncestors(display);
+    // Rebuild displayed tiles whose OSM data arrived after they were built,
+    // nearest first, only while nothing is missing.
+    let stale = 0;
+    if (!missing.length) {
+      const pending = [...displayed]
+        .map((key) => [key, cache.get(key)])
+        .filter(([key, entry]) => entry?.stale && !inflight.has(key))
+        .map(([key, entry]) => ({ key, rect: entry.rect, distance: rectDistance(cameraLocal, entry.rect) }))
+        .sort((a, b) => a.distance - b.distance);
+      stale = pending.length;
+      for (const node of pending) {
+        if (inflight.size >= tilesConfig.max_inflight) break;
+        requestTile(node.key, node.rect);
+      }
+    }
     evict();
-    return inflight.size > 0 || missing.length > 0;
+    const osmPending = osm ? updateOsm(cameraLocal, heightAboveGround) : false;
+    return inflight.size > 0 || missing.length > 0 || stale > 0 || osmPending;
+  }
+
+  function requestTile(key, rect) {
+    inflight.set(key, rect);
+    worker.postMessage({ type: "tile", worldId, key, rect });
+  }
+
+  // The OSM layer's meshes, plus the camera as the worker's download focus
+  // (sent whenever it moved osm.focus_meters).
+  function updateOsm(cameraLocal, heightAboveGround) {
+    if (!focus || Math.hypot(cameraLocal.x - focus.x, cameraLocal.z - focus.z) > config.osm.focus_meters) {
+      focus = { x: cameraLocal.x, z: cameraLocal.z };
+      worker.postMessage({ type: "focus", worldId, x: focus.x, z: focus.z });
+    }
+    return osm.update(cameraLocal, heightAboveGround);
+  }
+
+  // An OSM tile is loaded in the worker: its meshes can be asked for, and the
+  // terrain tiles under it that were built without it are out of date.
+  function receiveOsmTile({ key, rect, version }) {
+    osm?.addTile(key, rect);
+    for (const entry of cache.values()) {
+      if (entry.osmVersion >= version || !entry.rect) continue;
+      const { x0, z0, size } = entry.rect;
+      if (x0 > rect.maxX || x0 + size < rect.minX || z0 > rect.maxZ || z0 + size < rect.minZ) continue;
+      entry.stale = true;
+    }
+    onTileReady();
   }
 
   function receiveTile({ key, tile }) {
+    const rect = inflight.get(key);
     inflight.delete(key);
+    // A rebuilt (formerly stale) tile replaces the old one.
+    const previous = cache.get(key);
+    if (previous) {
+      disposeTile(previous);
+      cache.delete(key);
+    }
     const group = new THREE.Group();
     group.position.set(tile.cx, 0, tile.cz);
     group.visible = false;
@@ -151,7 +221,7 @@ export function createTileManager({
     if (buildingMaterial) addBuildings(group, tile.buildings);
 
     root.add(group);
-    cache.set(key, { group, lastUsed: frame });
+    cache.set(key, { group, lastUsed: frame, rect, osmVersion: tile.osmVersion ?? 0, stale: false });
     onTileReady();
   }
 
@@ -218,7 +288,7 @@ export function createTileManager({
     if (cache.size <= tilesConfig.max_cached_tiles) return;
     const baseKeys = new Set(world.base.map((node) => node.key));
     const candidates = [...cache.entries()]
-      .filter(([key]) => !displayed.has(key) && !baseKeys.has(key))
+      .filter(([key]) => !displayed.has(key) && !baseKeys.has(key) && !fallbackKeys.has(key))
       .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
     const excess = cache.size - tilesConfig.max_cached_tiles;
     for (const [key, entry] of candidates.slice(0, excess)) {
@@ -239,6 +309,7 @@ export function createTileManager({
 
   function dispose() {
     worker.terminate();
+    osm?.dispose();
     for (const entry of cache.values()) disposeTile(entry);
     cache.clear();
     scene.remove(root);
@@ -249,6 +320,12 @@ export function createTileManager({
   }
 
   return { setWorld, setTerrain, update, dispose };
+}
+
+function rectDistance(point, rect) {
+  const dx = Math.max(rect.x0 - point.x, 0, point.x - (rect.x0 + rect.size));
+  const dz = Math.max(rect.z0 - point.z, 0, point.z - (rect.z0 + rect.size));
+  return Math.hypot(dx, dz);
 }
 
 // Low-poly tree meshes with baked vertex colors (crown + trunk), ~1 m base

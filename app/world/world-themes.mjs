@@ -93,23 +93,34 @@ export function createTerrainMaterial(theme, sunDirection) {
   return material;
 }
 
-// City buildings: instanced unit boxes (base at y = 0, see world-city.mjs)
-// scaled per building, facade color per instance, and windows drawn in the
-// shader — a glass inset in every window_width × floor_height cell of each
-// wall, measured in meters on that wall, fading to an average tone where the
-// cells get smaller than a few pixels. Roofs get the roof color.
-export function createBuildingMaterial(theme) {
+// Buildings with windows drawn in the shader — a glass inset in every
+// window_width × floor_height cell of each wall, measured in meters on that
+// wall, a darker ground floor, fading to an average tone where the cells get
+// smaller than a few pixels. Two geometries share it:
+//   - city buildings (default): instanced unit boxes (base at y = 0, see
+//     world-city.mjs) scaled per building, facade color per instance, the
+//     wall meters derived from the instance scale; roofs get the roof color.
+//   - OSM buildings (`osm: true`, world-osm-layer.mjs): extruded footprints
+//     carrying their own wall meters (`facade` attribute: along the ring,
+//     above the ground) and a `buildingStyle` attribute (x = 2 on roofs),
+//     colored per vertex.
+export function createBuildingMaterial(theme, { osm = false } = {}) {
   const look = theme.buildings;
-  const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: osm });
   const glass = new THREE.Color(look.glass);
   const roof = new THREE.Color(look.roof);
   material.onBeforeCompile = (shader) => {
     shader.uniforms.glassColor = { value: glass };
     shader.uniforms.roofColor = { value: roof };
     shader.uniforms.windowCell = { value: new THREE.Vector2(look.window_width_meters, look.floor_height_meters) };
-    shader.vertexShader = `varying vec2 vFacade;\nvarying float vRoof;\n${shader.vertexShader}`.replace(
+    const header = osm ? "attribute vec2 facade;\nattribute vec2 buildingStyle;\n" : "";
+    shader.vertexShader = `${header}varying vec2 vFacade;\nvarying float vRoof;\n${shader.vertexShader}`.replace(
       "#include <begin_vertex>",
-      `#include <begin_vertex>
+      osm
+        ? `#include <begin_vertex>
+      vRoof = step(1.5, buildingStyle.x);
+      vFacade = facade;`
+        : `#include <begin_vertex>
       #ifdef USE_INSTANCING
         vec3 buildingScale = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
       #else
@@ -123,7 +134,7 @@ export function createBuildingMaterial(theme) {
       "#include <color_fragment>",
       `#include <color_fragment>
       if (vRoof > 0.5) {
-        diffuseColor.rgb = roofColor * (0.8 + 0.2 * diffuseColor.rgb);
+        ${osm ? "" : "diffuseColor.rgb = roofColor * (0.8 + 0.2 * diffuseColor.rgb);"}
       } else {
         vec2 cell = vFacade / windowCell;
         vec2 f = fract(cell);
@@ -140,7 +151,7 @@ export function createBuildingMaterial(theme) {
       }`,
     );
   };
-  material.customProgramCacheKey = () => "city-buildings";
+  material.customProgramCacheKey = () => (osm ? "osm-buildings" : "city-buildings");
   return material;
 }
 

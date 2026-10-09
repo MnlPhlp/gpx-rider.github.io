@@ -1,9 +1,11 @@
 // The virtual world's three.js scene: sky dome, sun and ambient light, haze
 // that thins with altitude, water, the far horizon ground, the road along the
-// track, and the streamed terrain tiles (world-tile-manager.mjs), all in the
+// track, and the streamed terrain tiles (world-tile-manager.mjs) — with the
+// OpenStreetMap buildings, roads and water of a real-world style — all in the
 // look of the style's theme (world-themes.mjs). Owns the main-thread copy of
 // the height field the overlays and the camera read; the tile worker builds
-// its own identical one. For a real-terrain style the ground starts out
+// its own identical one (the main thread's skips the OSM water carve, which
+// only the drawn ground needs). For a real-world style the ground starts out
 // route-only and is rebuilt once the worker has loaded the elevation tiles
 // (`onTerrainChanged`).
 
@@ -66,8 +68,10 @@ export function createWorldScene(config, { style, demBaseUrl, onTileReady, onTer
     style,
     theme,
     terrainMaterial,
-    buildingMaterial: theme.buildings ? createBuildingMaterial(theme) : null,
-    buildingColor: theme.buildings ? buildingPalette(theme) : null,
+    // The offline city look's instanced buildings (real-world styles draw
+    // OSM buildings instead, world-osm-layer.mjs).
+    buildingMaterial: theme.ground === "city" ? createBuildingMaterial(theme) : null,
+    buildingColor: theme.ground === "city" ? buildingPalette(theme) : null,
     demBaseUrl,
     onTileReady,
     onDem: (demTiles) => {

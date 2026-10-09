@@ -12,6 +12,7 @@ import { removeGhostMarker } from "../replay/ghost-ui.mjs";
 import { updateRideUi } from "../ride/ride-ui.mjs";
 import { saveSettings } from "../storage/persistence.mjs";
 import { clearRouteFromMap, renderRoute } from "./route-render.mjs";
+import { syncWorldAttribution } from "./world-attribution.mjs";
 import { openSettings } from "../settings/settings-ui.mjs";
 import { els, state, updateProgressLabel } from "../core/state.mjs";
 import { DEFAULT_MAP_FOV_DEGREES, VIRTUAL_WORLD } from "../core/tuning.mjs";
@@ -85,6 +86,7 @@ async function createMainMap(camera) {
     if (style) await initVirtualWorldMap(camera, style);
     else await initGooglePhotorealistic3DMap(camera);
     bindManualCameraCapture();
+    syncWorldAttribution();
   } catch (error) {
     console.error(error);
     updateProgressLabel(virtualWorldStyle(state.mapRenderer)
@@ -133,6 +135,7 @@ export async function applyMapRenderer() {
   if (state.mapProvider === wanted) {
     // Virtual to virtual: same map, new look or ground source.
     if (style) state.map.setWorldStyle(style);
+    syncWorldAttribution();
     return;
   }
   if (wanted === "google3d" && !window.google?.maps) {

@@ -1,6 +1,6 @@
 // Fetches and decodes Mapzen Terrarium elevation tiles inside the tile worker
 // (fetch → createImageBitmap → OffscreenCanvas pixels → meters), for the
-// virtual world's real-terrain styles. The same public, keyless AWS Open Data
+// virtual world's real-world style. The same public, keyless AWS Open Data
 // tiles the online-terrain camera feature uses (map/terrain-tiles.mjs). A
 // tile that fails to load resolves to null; the height field then falls back
 // to the route-only synthesis there.

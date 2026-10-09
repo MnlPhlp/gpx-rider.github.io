@@ -377,6 +377,7 @@ export const els = {
   terrainClearanceOutput: document.querySelector("#terrainClearanceOutput"),
   terrainTilesInput: document.querySelector("#terrainTilesInput"),
   terrainAttribution: document.querySelector("#terrainAttribution"),
+  worldAttribution: document.querySelector("#worldAttribution"),
   routeGradeColorsInput: document.querySelector("#routeGradeColorsInput"),
   mapRendererSelect: document.querySelector("#mapRendererSelect"),
   resetRenderingBtn: document.querySelector("#resetRenderingBtn"),

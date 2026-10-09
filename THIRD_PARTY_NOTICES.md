@@ -18,6 +18,18 @@ The virtual world renderer in `app/world/` uses **three.js r186 (0.186.1)**
 `SkeletonUtils` and `lines/` addons), distributed under the MIT license in
 `app/vendor/three/LICENSE` and reproduced below.
 
+The real-world virtual style triangulates OpenStreetMap building roofs and
+water areas with **earcut 3.2.4** (https://github.com/mapbox/earcut),
+vendored unmodified as `app/vendor/earcut/earcut.js` under the ISC license in
+`app/vendor/earcut/LICENSE`, reproduced below.
+
+Map data shown by that style is © OpenStreetMap contributors, available under
+the Open Database License (https://www.openstreetmap.org/copyright), in the
+OpenMapTiles schema (© OpenMapTiles, https://openmaptiles.org), served by
+OpenFreeMap (https://openfreemap.org); the app credits it on the map while the
+style is active. The test fixture `tests/fixtures/osm-stelvio-14-8667-5793.pbf`
+is one such tile (see `tests/fixtures/README.md`).
+
 ## MapillaryJS
 
 ```
@@ -68,4 +80,24 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+```
+
+## earcut
+
+```
+ISC License
+
+Copyright (c) 2026, Mapbox
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.
 ```

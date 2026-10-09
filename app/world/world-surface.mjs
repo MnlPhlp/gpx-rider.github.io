@@ -29,10 +29,25 @@ function mixPair(out, a, b, t, amount) {
   mix(out, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t], amount);
 }
 
+// Ground classes that are built or open water: no alpine tint, no rock on
+// steep slopes.
+const HARD_GROUND = new Set(["building", "road", "water", "industrial", "urban"]);
+
 // `city` (optional, world-city.mjs#createCity): paint the urban band as
 // pavement, sidewalks and parks, with trees only in the parks.
-export function createSurface(terrain, config, { city = null } = {}) {
+// `osm` (optional, real-world styles): { ground: createOsmGround(...),
+// classes: virtual_world.osm.ground }. Wherever an OSM tile is loaded the
+// ground color, forest density and lone trees come from the class there;
+// elsewhere the synthetic look below fills in.
+export function createSurface(terrain, config, { city = null, osm = null } = {}) {
   const palette = Object.fromEntries(Object.entries(config.colors).map(([name, hex]) => [name, hexToLinear(hex)]));
+  const osmClasses = (osm?.classes ?? []).map((entry) => ({
+    color: hexToLinear(entry.color),
+    trees: Number(entry.trees) || 0,
+    lone: Number(entry.lone) || 0,
+    natural: !HARD_GROUND.has(entry.name),
+  }));
+  const osmClassAt = (x, z) => (osm ? osm.ground.classAt(x, z) : -1);
   const forestNoise = createNoise2D(terrain.seed ^ 0x51ed270b);
   const fieldNoise = createNoise2D(terrain.seed ^ 0x2545f491);
   const detailNoise = createNoise2D(terrain.seed ^ 0x6c8e9cf5);
@@ -41,15 +56,20 @@ export function createSurface(terrain, config, { city = null } = {}) {
 
   // 0..1 forest cover at (x, z): broad patches of woodland with clearings,
   // none above the treeline, under water, on cliffs or on the road.
-  function forestDensity(x, z, height, slope, roadDistance) {
-    const patches = fbm(forestNoise, x / config.forest_patch_meters, z / config.forest_patch_meters, 4);
-    let density = smoothstep(config.forest_threshold - 0.15, config.forest_threshold + 0.15, patches);
+  // `cls` (optional): the OSM ground class there (-1 = none loaded).
+  function forestDensity(x, z, height, slope, roadDistance, cls = osmClassAt(x, z)) {
+    let density;
+    if (cls >= 0) density = osmClasses[cls].trees;
+    else {
+      const patches = fbm(forestNoise, x / config.forest_patch_meters, z / config.forest_patch_meters, 4);
+      density = smoothstep(config.forest_threshold - 0.15, config.forest_threshold + 0.15, patches);
+    }
     const treeline = config.treeline_meters + 120 * detailNoise(x / 700, z / 700);
     density *= 1 - smoothstep(treeline - 150, treeline, height);
     density *= 1 - smoothstep(0.45, 0.6, slope);
     density *= smoothstep(terrain.waterLevel + 1, terrain.waterLevel + 4, height);
     density *= smoothstep(trees.road_clearance_meters, trees.road_clearance_meters * 2.5, roadDistance);
-    if (city) {
+    if (city && cls < 0) {
       // In town only the parks are wooded (squared falloff keeps the fringe,
       // where buildings start, mostly clear).
       const urban = city.urbanAt(x, z, roadDistance);
@@ -60,6 +80,8 @@ export function createSurface(terrain, config, { city = null } = {}) {
 
   // The ground color at a vertex. `slope` is 1 - normal.y (0 flat, ~1 cliff).
   function colorAt(x, z, ground, slope, out) {
+    const cls = osmClassAt(x, z);
+    if (cls >= 0) return osmColorAt(x, z, ground, slope, cls, out);
     const { height, roadDistance, alpine } = ground;
     const variation = detailNoise(x / 90, z / 90) * 0.5 + 0.5;
     const meadowBlend = 0.35 + 0.65 * variation;
@@ -100,6 +122,27 @@ export function createSurface(terrain, config, { city = null } = {}) {
     return out;
   }
 
+  // The ground color of an OSM class: its color with a little variation, the
+  // forest floor where trees grow, and on natural ground the alpine tint
+  // high up and bare rock on steep slopes; gravel along the route's road.
+  function osmColorAt(x, z, ground, slope, cls, out) {
+    const { height, roadDistance, alpine } = ground;
+    const entry = osmClasses[cls];
+    const shade = 0.9 + 0.2 * (detailNoise(x / 90, z / 90) * 0.5 + 0.5);
+    out[0] = entry.color[0] * shade;
+    out[1] = entry.color[1] * shade;
+    out[2] = entry.color[2] * shade;
+    if (entry.natural) {
+      mix(out, palette.forest, forestDensity(x, z, height, slope, roadDistance, cls) * 0.6);
+      mix(out, palette.alpine, alpine * smoothstep(config.treeline_meters - 200, config.treeline_meters + 300, height) * 0.5);
+      const rockSlope = smoothstep(config.rock_slope - 0.12, config.rock_slope + 0.08, slope);
+      mixPair(out, palette.rock, palette.rock_dark, shade - 0.9, rockSlope);
+    }
+    const edge = 1 - smoothstep(config.shoulder_meters * 0.5, config.shoulder_meters, roadDistance);
+    mix(out, palette.shoulder, edge);
+    return out;
+  }
+
   // Trees for one square tile [x0, x0 + size] × [z0, z0 + size]: a jittered
   // grid on the world's global lattice (so a tile split never moves a tree),
   // kept by the local forest density plus a few lone meadow trees.
@@ -124,8 +167,10 @@ export function createSurface(terrain, config, { city = null } = {}) {
         const ground = terrain.sample(x, z, scratch);
         if (ground.roadDistance < trees.road_clearance_meters) continue;
         const slope = slopeAt(x, z, ground.height);
-        const density = forestDensity(x, z, ground.height, slope, ground.roadDistance);
-        const lone = trees.lone_tree_chance * smoothstep(terrain.waterLevel + 2, terrain.waterLevel + 4, ground.height)
+        const cls = osmClassAt(x, z);
+        const density = forestDensity(x, z, ground.height, slope, ground.roadDistance, cls);
+        const loneChance = cls >= 0 ? osmClasses[cls].lone : trees.lone_tree_chance;
+        const lone = loneChance * smoothstep(terrain.waterLevel + 2, terrain.waterLevel + 4, ground.height)
           * (1 - smoothstep(0.3, 0.45, slope))
           * (1 - smoothstep(config.treeline_meters - 100, config.treeline_meters, ground.height));
         if (keep >= Math.max(density * trees.forest_fill, lone)) continue;

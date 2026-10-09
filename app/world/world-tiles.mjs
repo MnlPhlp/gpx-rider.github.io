@@ -61,15 +61,36 @@ export function selectLeaves(tree, camera, { splitFactor, detailBoost = null }) 
   return leaves;
 }
 
-// The nodes to actually draw: each wanted leaf that is ready, and where a
-// leaf (or any sibling) is not ready yet, the closest ready ancestor covering
-// the whole family instead — never a mix of a parent and its children, which
-// would overlap. Returns [] when nothing in the tree is ready.
+// The nodes to actually draw: each wanted leaf that is ready; a leaf that is
+// not ready yet but whose loaded descendants cover it (the camera moved away
+// and the finer tiles drawn a moment ago are still cached) draws those; else
+// the closest ready ancestor covers the whole family instead — never a mix of
+// a parent and its children, which would overlap. Returns [] when nothing in
+// the tree is ready.
+const DESCENDANT_FALLBACK_LEVELS = 2;
+
 export function resolveDisplay(tree, leaves, isReady) {
   const leafKeys = new Set(leaves.map((leaf) => leaf.key));
+  // Ready descendants (at most DESCENDANT_FALLBACK_LEVELS down) tiling the
+  // node exactly, or null.
+  const descendants = (level, i, j, depth) => {
+    if (depth >= DESCENDANT_FALLBACK_LEVELS || level >= tree.maxLevel) return null;
+    const parts = [];
+    for (const [di, dj] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      const ci = i * 2 + di;
+      const cj = j * 2 + dj;
+      if (isReady(nodeKey(level + 1, ci, cj))) parts.push(makeNode(tree, level + 1, ci, cj));
+      else {
+        const deeper = descendants(level + 1, ci, cj, depth + 1);
+        if (!deeper) return null;
+        parts.push(...deeper);
+      }
+    }
+    return parts;
+  };
   const visit = (level, i, j) => {
     const key = nodeKey(level, i, j);
-    if (leafKeys.has(key)) return isReady(key) ? [makeNode(tree, level, i, j)] : null;
+    if (leafKeys.has(key)) return isReady(key) ? [makeNode(tree, level, i, j)] : descendants(level, i, j, 0);
     if (level >= tree.maxLevel) return null;
     const parts = [];
     for (const [di, dj] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
@@ -80,6 +101,20 @@ export function resolveDisplay(tree, leaves, isReady) {
     return parts;
   };
   return visit(0, 0, 0) ?? [];
+}
+
+// The keys of every ancestor of the given nodes: the fallback chain the
+// display needs while a tile rebuilds, so the cache must not evict them.
+export function protectedAncestors(nodes) {
+  const keys = new Set();
+  for (const node of nodes) {
+    for (let level = node.level - 1, i = node.i >> 1, j = node.j >> 1; level >= 0; level--, i >>= 1, j >>= 1) {
+      const key = nodeKey(level, i, j);
+      if (keys.has(key)) break;
+      keys.add(key);
+    }
+  }
+  return keys;
 }
 
 // Every node down to `level` — the always-loaded coarse base the display
@@ -100,7 +135,15 @@ export function baseNodes(tree, level) {
 // heights stay absolute. Normals come from central differences over a
 // one-vertex border ring, so neighboring tiles of the same detail shade
 // seamlessly.
-export function buildTileArrays(terrain, surface, rect, { segments, skirtFactor, treeMaxTileMeters }) {
+//
+// The road bed is narrower than a coarse tile's grid step, so a triangle
+// spanning the road would interpolate the hillside beside it over the
+// asphalt. Every vertex within `roadClearSteps` grid steps (plus the road
+// bed's half width) of the road is therefore capped at the road's elevation
+// — ground is only ever lowered there, never raised — and skirts reach as
+// deep as a tile two levels coarser could cut, so seams stay closed. Trees
+// stand on the mesh as drawn, not on the finer height field.
+export function buildTileArrays(terrain, surface, rect, { segments, skirtFactor, treeMaxTileMeters, roadClearSteps = 0 }) {
   const n = segments;
   const step = rect.size / n;
   const cx = rect.x0 + rect.size / 2;
@@ -109,19 +152,26 @@ export function buildTileArrays(terrain, surface, rect, { segments, skirtFactor,
   const heights = new Float64Array(ring * ring);
   const vertexCount = (n + 1) * (n + 1);
   const grounds = new Array(vertexCount);
+  const halfWidth = terrain.roadHalfWidth ?? 0;
+  const clearReach = roadClearSteps > 0 ? roadClearSteps * step + halfWidth : -1;
+  const coarseReach = roadClearSteps > 0 ? roadClearSteps * step * 4 + halfWidth : -1;
+  // Per edge vertex: how far a tile two levels coarser could lower it.
+  const coarseDrop = new Float64Array(vertexCount);
+  const scratch = {};
 
   for (let r = 0; r < ring; r++) {
     for (let c = 0; c < ring; c++) {
       const x = rect.x0 + (c - 1) * step;
       const z = rect.z0 + (r - 1) * step;
       const interior = r >= 1 && r <= n + 1 && c >= 1 && c <= n + 1;
-      if (interior) {
-        const ground = terrain.sample(x, z, {});
-        grounds[(r - 1) * (n + 1) + (c - 1)] = ground;
-        heights[r * ring + c] = ground.height;
-      } else {
-        heights[r * ring + c] = terrain.heightAt(x, z);
+      const ground = terrain.sample(x, z, interior ? {} : scratch);
+      let h = ground.height;
+      if (ground.roadDistance < coarseReach && h > ground.roadElevation) {
+        if (interior) coarseDrop[(r - 1) * (n + 1) + (c - 1)] = h - ground.roadElevation;
+        if (ground.roadDistance < clearReach) h = ground.roadElevation;
       }
+      if (interior) grounds[(r - 1) * (n + 1) + (c - 1)] = ground;
+      heights[r * ring + c] = h;
     }
   }
 
@@ -192,7 +242,7 @@ export function buildTileArrays(terrain, surface, rect, { segments, skirtFactor,
       const source = edgeVertex(k);
       const target = base + k;
       positions[target * 3] = positions[source * 3];
-      positions[target * 3 + 1] = positions[source * 3 + 1] - skirtDepth;
+      positions[target * 3 + 1] = positions[source * 3 + 1] - skirtDepth - coarseDrop[source];
       positions[target * 3 + 2] = positions[source * 3 + 2];
       for (let q = 0; q < 3; q++) {
         normals[target * 3 + q] = normals[source * 3 + q];
@@ -213,10 +263,25 @@ export function buildTileArrays(terrain, surface, rect, { segments, skirtFactor,
     const placed = surface.placeTrees(rect.x0, rect.z0, rect.size);
     trees = new Float32Array(placed.data);
     for (let k = 0; k < placed.count; k++) {
+      trees[k * 6 + 1] = meshHeight(placed.data[k * 6], placed.data[k * 6 + 2]);
       trees[k * 6] -= cx;
       trees[k * 6 + 2] -= cz;
     }
   }
 
   return { cx, cz, minY, maxY: Math.max(maxY, minY), positions, normals, colors, indices, trees };
+
+  // The drawn surface at (x, z): the grid's triangles (diagonal from each
+  // quad's top-right to its bottom-left corner, as indexed above).
+  function meshHeight(x, z) {
+    const fx = Math.min(n, Math.max(0, (x - rect.x0) / step));
+    const fz = Math.min(n, Math.max(0, (z - rect.z0) / step));
+    const c = Math.min(n - 1, Math.floor(fx));
+    const r = Math.min(n - 1, Math.floor(fz));
+    const u = fx - c;
+    const v = fz - r;
+    const h = (cc, rr) => heights[(rr + 1) * ring + (cc + 1)];
+    if (u + v <= 1) return h(c, r) + (h(c + 1, r) - h(c, r)) * u + (h(c, r + 1) - h(c, r)) * v;
+    return h(c + 1, r + 1) + (h(c, r + 1) - h(c + 1, r + 1)) * (1 - u) + (h(c + 1, r) - h(c + 1, r + 1)) * (1 - v);
+  }
 }

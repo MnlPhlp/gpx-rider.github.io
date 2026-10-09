@@ -38,6 +38,7 @@ import {
   saveMapsApiKey,
   updateMapRendererFromControl,
 } from "./map/map-init.mjs";
+import { registerWorldAttributionHud } from "./map/world-attribution.mjs";
 import {
   adjustHudVisibleCount,
   exitMapFullscreen,
@@ -166,6 +167,7 @@ async function startApp() {
   registerCameraDebugHud();
   initStreetImagery();
   registerMinimapHud();
+  registerWorldAttributionHud();
 
   restoreSettings();
   restoreRideLog();

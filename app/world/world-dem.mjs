@@ -1,4 +1,4 @@
-// Real ground elevation for the virtual world's "real terrain" styles: which
+// Real ground elevation for the virtual world's real-world style: which
 // Mapzen Terrarium tiles cover the world (picking the finest zoom that stays
 // under a tile budget), and bilinear elevation sampling across decoded tiles,
 // seamless over tile borders. Pure — the tile worker fetches and decodes the

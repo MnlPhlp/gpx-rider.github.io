@@ -219,8 +219,10 @@ export function restoreSettings() {
     state.routeGradeColorsEnabled = settings.routeGradeColorsEnabled;
   }
 
-  if (settings?.mapRenderer === "google" || VIRTUAL_WORLD.styles.some((style) => style.id === settings?.mapRenderer)) {
-    state.mapRenderer = settings.mapRenderer;
+  // A style id from an earlier version opens as its replacement.
+  const renderer = VIRTUAL_WORLD.retired_styles?.[settings?.mapRenderer] ?? settings?.mapRenderer;
+  if (renderer === "google" || VIRTUAL_WORLD.styles.some((style) => style.id === renderer)) {
+    state.mapRenderer = renderer;
   }
 
   const terrainClearance = Number(settings?.terrainClearanceMeters);

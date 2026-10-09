@@ -557,7 +557,7 @@ terrain_tiles:
 # with distance from the road, mountains where the route climbs high, forests,
 # fields, lakes, rock and snow. The route line, rider marker, beacons and every
 # HUD overlay are the same as on the Google map. Needs no API key and loads no
-# map imagery (the real-terrain styles fetch public elevation tiles).
+# map imagery (the real-world style fetches public elevation and OpenStreetMap tiles).
 virtual_world:
   # Default for the "Map rendering" select: "google" (photorealistic 3D tiles)
   # or the id of one of the styles below.
@@ -565,19 +565,22 @@ virtual_world:
 
   # The virtual world styles offered in the side panel's Map rendering select
   # (under "Virtual world"), in order. Each combines a look (`theme`, one of
-  # `themes` below) with a ground source (`terrain`): "route" synthesizes the
-  # landscape from the route's own elevations only; "real" shapes it from real
-  # elevation data (free public Mapzen Terrarium tiles on AWS Open Data, the
-  # same as the online-terrain camera setting — requested for the route's area
-  # only while such a style is shown). Add a theme + a line here to offer a new
-  # style; the id is what Settings persist.
+  # `themes` below) with a ground source (`terrain`). "route" = offline: the
+  # whole landscape is synthesized from the route's own track and elevations,
+  # and nothing is requested from the network. "real" = the real world: the
+  # ground shape from real elevation data (free public Mapzen Terrarium tiles
+  # on AWS Open Data, the same as the online-terrain camera setting) plus the
+  # OpenStreetMap buildings, land use and land cover, other roads and water
+  # around the route (the `osm` block below) — both requested for the route's
+  # area only while that style is shown. The id is what Settings persist; a
+  # retired id can be mapped to a current one in `retired_styles`.
   styles:
     - { id: "virtual", label: "Natural landscape", theme: "nature", terrain: "route" }
-    - { id: "virtual-real", label: "Natural landscape · real terrain", theme: "nature", terrain: "real" }
     - { id: "neon", label: "Neon grid", theme: "neon", terrain: "route" }
-    - { id: "neon-real", label: "Neon grid · real terrain", theme: "neon", terrain: "real" }
     - { id: "city", label: "City", theme: "city", terrain: "route" }
-    - { id: "city-real", label: "City · real terrain", theme: "city", terrain: "real" }
+    - { id: "virtual-real", label: "Real world", theme: "nature", terrain: "real" }
+  # Style ids saved by earlier versions → the style they now open as.
+  retired_styles: { "neon-real": "virtual-real", "city-real": "virtual-real" }
 
   # The height field (world-terrain.mjs).
   terrain:
@@ -623,17 +626,20 @@ virtual_world:
     # Lakes fill hollows this far below the route's lowest point.
     water_below_route_meters: 15
 
-    # Real-terrain styles (world-dem.mjs, world-terrain.mjs#sampleReal).
+    # The real-world style's elevation (world-dem.mjs, world-terrain.mjs#sampleReal).
     real:
       # Elevation tiles: the finest zoom up to max_zoom whose tile count for
       # the world's area fits max_tiles (zoom 13 ≈ 13 m per pixel in the Alps,
       # 12 ≈ 26 m). Each tile is ~100 KB.
       max_zoom: 13
       max_tiles: 100
-      # The road bed stays at the GPX elevation and eases into the real ground
-      # over this distance beyond road_half_width_meters (cuttings and
-      # embankments where GPX and terrain data disagree).
-      road_blend_meters: 25
+      # The road bed stays at the GPX elevation, flat for road_shoulder_meters
+      # beyond road_half_width_meters, then eases into the real ground over
+      # road_blend_meters (cuttings and embankments where GPX and terrain
+      # data disagree, or where the road traverses a slope). Wider = the
+      # ground follows the road's height further out, gentler cuts.
+      road_shoulder_meters: 3
+      road_blend_meters: 40
       # Fine detail noise on top of the elevation grid, ramping in away from
       # the road over detail_ramp_meters.
       detail_meters: 3
@@ -762,6 +768,101 @@ virtual_world:
     skyline_max_tile_meters: 3200
     skyline_min_height_meters: 35
 
+  # OpenStreetMap in the real-world styles (terrain: "real"): buildings, land
+  # use / land cover, other roads and water from vector tiles in the
+  # OpenMapTiles schema (world-osm*.mjs). Loaded in the tile worker for a
+  # corridor around the route; where a tile is missing or failed, the ground
+  # falls back to the synthetic look. The route itself stays the generated
+  # road; OSM roads are the other roads around it.
+  osm:
+    # TileJSON of the vector tile source. Read once per world: its tile URLs
+    # carry a dated build id that changes. OpenFreeMap is free, keyless,
+    # open source and self-hostable — point this at your own instance if you
+    # run one. The browser's HTTP cache keeps the (immutable) tiles.
+    tilejson_url: "https://tiles.openfreemap.org/planet"
+    # Shown on the map while a real-world style is active (the elevation
+    # tiles' credit is appended: terrain_tiles.attribution).
+    attribution: "© OpenStreetMap contributors · © OpenMapTiles · OpenFreeMap"
+    # Tile zoom (14 = the source's finest, ~2.4 km × cos(latitude) wide).
+    zoom: 14
+    # Tiles within corridor_meters of the route, at most max_tiles (the
+    # corridor shrinks until the count fits), concurrency downloads at once,
+    # nearest to the camera first (re-sorted when it moves focus_meters).
+    corridor_meters: 1500
+    max_tiles: 80
+    concurrency: 4
+    focus_meters: 200
+    # Ground classes per tile are rasterized onto a raster_cells² grid
+    # (256 at zoom 14 ≈ 6 m cells) for colors, trees and the water carve.
+    raster_cells: 256
+    # Building / road / water meshes exist for OSM tiles within
+    # mesh_distance_meters of the camera (nearest first, mesh_inflight
+    # builds at a time), at most max_mesh_tiles of them kept (LRU).
+    mesh_distance_meters: 4500
+    mesh_inflight: 2
+    max_mesh_tiles: 24
+    # Depth pull of the draped OSM roads and water (fraction of view
+    # distance, like scene.road_depth_pull), so coarse distant terrain tiles
+    # don't swallow them.
+    depth_pull: 0.0012
+    buildings:
+      # Heights come from OSM (render_height); unknown ones get the source's
+      # default. Buildings sit on the lowest ground under their footprint,
+      # sunk by foundation_meters, so none floats on a slope.
+      foundation_meters: 1.5
+      min_height_meters: 2.5
+      # Buildings this close to the route's road (beyond its bed) are left
+      # out: GPS tracks and OSM disagree by a few meters in town.
+      road_clearance_meters: 2
+      # From this height on a building uses the theme's tower facades.
+      tower_from_meters: 40
+    roads:
+      # Width in meters per OSM transportation class (missing = not drawn).
+      widths: { motorway: 13, trunk: 11, primary: 9, secondary: 7.5, tertiary: 6.5, minor: 5, service: 3.5, busway: 5, raceway: 8, track: 2.6, path: 1.6 }
+      # Paths and tracks only within this distance of the route.
+      path_max_route_distance_meters: 700
+      # OSM road stretches within route_overlap_meters of the route's road
+      # and running along it (|cos| of the angle ≥ route_parallel_cos) are
+      # the route itself: cut out so it isn't drawn twice.
+      route_overlap_meters: 9
+      route_parallel_cos: 0.7
+      # Ribbons draped on the ground: both edges sampled every
+      # resample_meters at their own ground height + lift_meters. Bridges run
+      # straight from end to end instead.
+      resample_meters: 4
+      lift_meters: 0.15
+    waterways:
+      # Width per waterway class (missing = not drawn); tunnels never are.
+      widths: { river: 16, canal: 10, stream: 2.5 }
+    water:
+      # Inside water areas the ground is carved this far below the real
+      # elevation, and the water surface sits sink_meters below the lowest
+      # shore point (still water) or the local shore (rivers).
+      carve_meters: 4
+      sink_meters: 0.5
+      still_classes: [ocean, lake, pond, reservoir, basin, dock, swimming_pool]
+    # Ground classes, highest priority first (where areas overlap the first
+    # wins). `match` lists OSM landcover subclasses/classes and landuse
+    # classes; color is the ground color (sRGB), trees the forest density
+    # (0..1, like the synthetic forest), lone the chance of a lone tree per
+    # lattice cell. "water", "road" and "building" are filled from their own
+    # layers; "unclassified" is land in a loaded tile no area covers.
+    ground:
+      - { name: "building", match: [], color: "#8f8a80", trees: 0, lone: 0 }
+      - { name: "road", match: [], color: "#7d7a72", trees: 0, lone: 0 }
+      - { name: "water", match: [], color: "#4d6f7a", trees: 0, lone: 0 }
+      - { name: "ice", match: [glacier, ice], color: "#eef3f7", trees: 0, lone: 0 }
+      - { name: "sand", match: [beach, sand, dune], color: "#d6c79b", trees: 0, lone: 0 }
+      - { name: "wetland", match: [wetland, marsh, swamp, bog, reedbed, saltmarsh, wet_meadow, mud, fen], color: "#6f8a5a", trees: 0.1, lone: 0.02 }
+      - { name: "forest", match: [wood, forest], color: "#35592a", trees: 1, lone: 0 }
+      - { name: "park", match: [park, garden, village_green, recreation_ground, cemetery, golf_course, pitch, playground, zoo, theme_park, stadium, allotments, flowerbed, dog_park], color: "#6f9a4a", trees: 0.3, lone: 0.05 }
+      - { name: "farmland", match: [farmland, farm, farmyard, orchard, vineyard, plant_nursery, greenhouse_horticulture], color: "#b3ad62", trees: 0, lone: 0.004 }
+      - { name: "rock", match: [rock, bare_rock, scree, shingle, cliff], color: "#8f887c", trees: 0, lone: 0 }
+      - { name: "grass", match: [grass, grassland, meadow, heath, scrub, shrubbery, fell], color: "#86ad55", trees: 0, lone: 0.02 }
+      - { name: "industrial", match: [industrial, commercial, retail, railway, quarry, garages, military, bus_station, landfill, construction, brownfield, dam, depot], color: "#9a968c", trees: 0, lone: 0.004 }
+      - { name: "urban", match: [residential, suburb, quarter, neighbourhood, school, university, college, kindergarten, hospital, library], color: "#a3a68f", trees: 0, lone: 0.03 }
+      - { name: "unclassified", match: [], color: "#7ea350", trees: 0, lone: 0.025 }
+
   # Terrain level of detail (world-tiles.mjs, world-scene.mjs).
   tiles:
     # Grid segments per tile edge (each tile is (segments+1)² vertices).
@@ -775,12 +876,19 @@ virtual_world:
     route_detail_boost: 1.8
     # Skirt depth in grid steps (hides cracks between tiles of different detail).
     skirt_factor: 3
+    # Grid vertices within this many grid steps (plus the road's half width)
+    # of the road never stand above the road's elevation, so no triangle of a
+    # coarse tile — whose vertices miss the narrow road bed — draws a
+    # hillside over the road. Lowers ground only (cuttings), never raises it.
+    road_clear_steps: 1.5
     # Coarse levels always kept loaded as a fallback while finer tiles build.
     base_level: 2
     # Trees only on tiles at most this large (= near the camera).
     tree_max_tile_meters: 400
-    # Decoded tiles kept in memory (LRU); tile builds in flight at once.
-    max_cached_tiles: 500
+    # Decoded tiles kept in memory (LRU); tile builds in flight at once. A
+    # chase view displays ~400, and the displayed tiles' ancestors (their
+    # fallback while a finer tile builds) are never evicted — keep headroom.
+    max_cached_tiles: 900
     max_inflight: 4
 
   # The look of the scene (world-scene.mjs).
@@ -806,6 +914,16 @@ virtual_world:
       road: "#4a4a4f"
       road_edge: "#e9e7df"
       road_embankment: "#8a806c"
+      # Real-world style: OSM roads (major = motorway…tertiary, minor =
+      # minor/service/busway, path = tracks and paths) and OSM buildings.
+      osm_roads: { major: "#4f4f54", minor: "#66645f", path: "#a39478" }
+      buildings:
+        facades: ["#d8cfbf", "#c9bda8", "#e3dccd", "#bfb5a6", "#d1bb9c", "#ebe5d8", "#b8ab98", "#dccfb3"]
+        towers: ["#8ea3b5", "#7d93a8", "#a7b6c2", "#6f8799", "#9aa9b0"]
+        roof: "#8a6f62"
+        glass: "#33475a"
+        window_width_meters: 3
+        floor_height_meters: 3.2
     neon:
       terrain_style: "neon"
       trees: false
@@ -876,9 +994,11 @@ virtual_world:
     # Depth pull toward the camera for the road and the rider marker, as a
     # fraction of view distance (see line_depth_pull): coarse distant terrain
     # tiles can sit a little above the true ground, and this margin grows with
-    # distance exactly like that error does. The marker gets the same pull so
-    # the road never covers it.
-    road_depth_pull: 0.0015
+    # distance exactly like that error does (and covers the switchback stacks
+    # a coarse distant tile can't separate: measured on Stelvio, all within
+    # 0.0019 × distance). The marker gets the same pull so the road never
+    # covers it.
+    road_depth_pull: 0.0025
     # Sun direction: compass bearing it shines from, and elevation above the
     # horizon, in degrees.
     sun_azimuth_degrees: 215

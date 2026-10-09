@@ -3604,3 +3604,18 @@ input[type="color"] {
   font-family: var(--font-mono);
   color: var(--ink);
 }
+
+/* The real-world virtual style's data credit (map/world-attribution.mjs):
+   small print at the foot of the left HUD column. Unlike our buttons it
+   stays in screenshots and recordings — the data license requires it. */
+.world-attribution {
+  max-width: min(360px, 70vw);
+  /* No top margin rule: .hud-align-end's margin-top: auto pins it down. */
+  margin-bottom: 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(13, 16, 21, 0.5);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
