@@ -161,7 +161,7 @@ const ROAD_KINDS = {
 
 // One decoded tile → { extent, areas, water, buildings, roads, waterways }:
 //   areas:     [{ cls, polygons }]           land use / land cover (raster)
-//   water:     [{ still, ocean, polygons }]  water areas, clipped
+//   water:     [{ polygons }]                water areas, clipped (a ground class)
 //   buildings: [{ rings, height, minHeight }]
 //   roads:     [{ points, width, kind, bridge }]   kind: major | minor | path
 //   waterways: [{ points, width }]
@@ -187,15 +187,13 @@ export function extractOsmTile(layers, tile, { projection, terrain, config, clas
     }
   }
 
-  const stillClasses = new Set(config.water.still_classes);
   for (const feature of layers.water?.features ?? []) {
     if (feature.type !== 3 || feature.properties.brunnel === "tunnel") continue;
     const polygons = feature.geometry
       .map((polygon) => polygon.map((ring) => clipRing(ring, extent)).filter((ring) => ring.length >= 6))
       .filter((polygon) => polygon.length && ringArea(polygon[0]) > 0);
     if (!polygons.length) continue;
-    const cls = String(feature.properties.class ?? "");
-    result.water.push({ still: stillClasses.has(cls), ocean: cls === "ocean", polygons });
+    result.water.push({ polygons });
   }
 
   const buildingConfig = config.buildings;

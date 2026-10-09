@@ -801,7 +801,7 @@ virtual_world:
     mesh_distance_meters: 4500
     mesh_inflight: 2
     max_mesh_tiles: 24
-    # Depth pull of the draped OSM roads and water (fraction of view
+    # Depth pull of the draped OSM roads and waterways (fraction of view
     # distance, like scene.road_depth_pull), so coarse distant terrain tiles
     # don't swallow them.
     depth_pull: 0.0012
@@ -834,13 +834,6 @@ virtual_world:
     waterways:
       # Width per waterway class (missing = not drawn); tunnels never are.
       widths: { river: 16, canal: 10, stream: 2.5 }
-    water:
-      # Inside water areas the ground is carved this far below the real
-      # elevation, and the water surface sits sink_meters below the lowest
-      # shore point (still water) or the local shore (rivers).
-      carve_meters: 4
-      sink_meters: 0.5
-      still_classes: [ocean, lake, pond, reservoir, basin, dock, swimming_pool]
     # Ground classes, highest priority first (where areas overlap the first
     # wins). `match` lists OSM landcover subclasses/classes and landuse
     # classes; color is the ground color (sRGB), trees the forest density
@@ -850,7 +843,7 @@ virtual_world:
     ground:
       - { name: "building", match: [], color: "#8f8a80", trees: 0, lone: 0 }
       - { name: "road", match: [], color: "#7d7a72", trees: 0, lone: 0 }
-      - { name: "water", match: [], color: "#4d6f7a", trees: 0, lone: 0 }
+      - { name: "water", match: [], color: "#3f7396", trees: 0, lone: 0 }
       - { name: "ice", match: [glacier, ice], color: "#eef3f7", trees: 0, lone: 0 }
       - { name: "sand", match: [beach, sand, dune], color: "#d6c79b", trees: 0, lone: 0 }
       - { name: "wetland", match: [wetland, marsh, swamp, bog, reedbed, saltmarsh, wet_meadow, mud, fen], color: "#6f8a5a", trees: 0.1, lone: 0.02 }

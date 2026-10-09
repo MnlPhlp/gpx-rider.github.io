@@ -1,6 +1,6 @@
 // The OpenStreetMap layer of a real-world style on screen: which OSM tiles
 // the worker has loaded (world-tile-worker.mjs announces them), asking it
-// for the building / road / water meshes of those near the camera (nearest
+// for the building and road meshes of those near the camera (nearest
 // first, a few at a time), turning the arrays it returns
 // (world-osm-meshes.mjs) into three.js meshes in the theme's look, showing
 // only those within osm.mesh_distance_meters, and evicting the least recently
@@ -9,7 +9,7 @@
 import * as THREE from "three";
 
 import { applyDepthPull } from "./world-depth-pull.mjs";
-import { createBuildingMaterial, createWaterMaterial } from "./world-themes.mjs";
+import { createBuildingMaterial } from "./world-themes.mjs";
 
 export function createOsmLayer({ scene, config, theme, requestMesh }) {
   const root = new THREE.Group();
@@ -21,7 +21,6 @@ export function createOsmLayer({ scene, config, theme, requestMesh }) {
   const ribbonMaterial = applyDepthPull(new THREE.MeshLambertMaterial({ vertexColors: true }), config.depth_pull);
   const roads = theme.osm_roads ?? {};
   const ribbonPalette = [roads.major, roads.minor, roads.path, theme.water].map((hex) => new THREE.Color(hex ?? theme.road));
-  const waterMaterial = applyDepthPull(createWaterMaterial(theme), config.depth_pull);
 
   const available = new Map(); // key → { rect }
   const built = new Map(); // key → { group, lastUsed }
@@ -40,7 +39,6 @@ export function createOsmLayer({ scene, config, theme, requestMesh }) {
     group.visible = false;
     if (buildingMaterial && meshes.buildings.indices.length) group.add(buildingMesh(meshes.buildings));
     if (meshes.ribbons.indices.length) group.add(ribbonMesh(meshes.ribbons));
-    if (meshes.water.indices.length) group.add(waterMesh(meshes.water));
     root.add(group);
     built.set(key, { group, lastUsed: frame });
   }
@@ -71,17 +69,6 @@ export function createOsmLayer({ scene, config, theme, requestMesh }) {
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
     return new THREE.Mesh(geometry, ribbonMaterial);
-  }
-
-  function waterMesh({ positions, indices }) {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(positions.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geometry, waterMaterial);
-    mesh.renderOrder = 1;
-    return mesh;
   }
 
   // Per frame: show the built tiles in range, request the nearest missing
@@ -138,7 +125,6 @@ export function createOsmLayer({ scene, config, theme, requestMesh }) {
     scene.remove(root);
     buildingMaterial?.dispose();
     ribbonMaterial.dispose();
-    waterMaterial.dispose();
   }
 
   return { addTile, receiveMesh, update, clear, dispose };

@@ -382,3 +382,11 @@ but not their values.
 - Measured: Prague center tile ~300 ms worker time (decode 12, extract 80,
   raster 36, meshes 160), 152k building vertices; the Prague gallery route in
   chase view held 60 fps (581 draw calls, ~830k triangles).
+- Follow-up 2026-10-09: OSM water surfaces were dropped (owner decision).
+  Levels from polygon corners floated above the shore; lowering water to the
+  shore turned steep rivers into jagged pits; shaping the ground to the water
+  like a road bed still looked off. Lakes and rivers are now only the blue
+  "water" ground class (plus waterway ribbons); the sea plane stays.
+- Also 2026-10-09: terrain-tile vertices near the road are capped at its
+  elevation (`tiles.road_clear_steps`), and the LOD display keeps cached
+  children / protected ancestors (no one-frame collapses).

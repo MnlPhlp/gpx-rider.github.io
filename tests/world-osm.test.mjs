@@ -20,7 +20,6 @@ import { createOsmGround, fillPolygon, rasterizeOsmTile } from "../app/world/wor
 import { buildOsmMeshes, RIBBON_KINDS } from "../app/world/world-osm-meshes.mjs";
 import { createSurface } from "../app/world/world-surface.mjs";
 import { createWorldProjection, createWorldTerrain } from "../app/world/world-terrain.mjs";
-import { createDem } from "../app/world/world-dem.mjs";
 
 const OSM = VIRTUAL_WORLD.osm;
 
@@ -251,11 +250,6 @@ function tileWorld() {
   return { tile, route };
 }
 
-function flatDem(tile, elevation) {
-  // One coarse DEM tile covering everything, flat.
-  const size = 4;
-  return createDem([{ z: 8, x: Math.floor(tile.x / 64), y: Math.floor(tile.y / 64), size, data: new Float32Array(size * size).fill(elevation) }]);
-}
 
 test("extract: route stretches, tunnels, far paths and buildings on the road are left out", () => {
   const { tile, route } = tileWorld();
@@ -337,38 +331,29 @@ test("raster: priority, holes, building outlines; the sampler stitches tiles", (
   assert.equal(ground.version, 1);
 });
 
-test("water: the ground is carved under water, the surface floats above it, the road bed wins", () => {
+test("water: lake and river areas are a blue ground class without trees", () => {
   const { tile, route } = tileWorld();
   const classes = createGroundClasses(OSM.ground);
-  const base = createWorldTerrain(route, VIRTUAL_WORLD.terrain);
-  const dem = flatDem(tile, 500);
-  const ground = createOsmGround(base.projection, { zoom: 14, cells: 256, unclassified: classes.index("unclassified") });
-  const terrain = createWorldTerrain(route, VIRTUAL_WORLD.terrain, { dem, osm: ground, waterCarveMeters: OSM.water.carve_meters });
-  // A lake in the north-west quarter, and a river polygon across the route.
-  const lake = [square(200, 200, 1200)];
-  const river = [square(3000, 1500, 200).map((v, i) => (i % 2 ? (v === 1500 ? 1000 : 3000) : v))];
-  const raster = { cells: 256, classes: new Uint8Array(256 * 256), water: new Uint8Array(256 * 256) };
-  fillPolygon(raster.water, 256, lake, 256 / 4096, 1);
-  fillPolygon(raster.water, 256, river, 256 / 4096, 1);
+  const terrain = createWorldTerrain(route, VIRTUAL_WORLD.terrain);
+  const extracted = {
+    extent: 4096, areas: [{ cls: classes.index("forest"), polygons: [[square(0, 0, 4096)]] }], buildings: [], roads: [], waterways: [],
+    water: [{ polygons: [[square(300, 300, 1200)]] }],
+  };
+  const raster = rasterizeOsmTile(extracted, tile, { cells: 256, groundClasses: classes });
+  const ground = createOsmGround(terrain.projection, { zoom: 14, cells: 256, unclassified: classes.index("unclassified") });
   ground.addTile(tile, raster);
-
-  const project = createTileProjector(tile, 4096, base.projection);
-  const inLake = { ...project(800, 800) };
-  assert.ok(terrain.heightAt(inLake.x, inLake.z) < 500 - OSM.water.carve_meters + 0.5);
-  assert.ok(Math.abs(terrain.naturalHeightAt(inLake.x, inLake.z) - 500) < 4);
-  const onRoad = { ...project(3100, 2048) };
-  assert.ok(Math.abs(terrain.heightAt(onRoad.x, onRoad.z) - 500) < 0.05, `${terrain.heightAt(onRoad.x, onRoad.z)}`);
-
-  const meshes = buildOsmMeshes(
-    { extent: 4096, buildings: [], roads: [], waterways: [], water: [{ still: true, ocean: false, polygons: [lake] }] },
-    tile,
-    { projection: base.projection, terrain, config: OSM },
-  );
-  const ys = [];
-  for (let i = 1; i < meshes.water.positions.length; i += 3) ys.push(meshes.water.positions[i]);
-  assert.ok(ys.every((y) => y === ys[0]), "still water is flat");
-  assert.ok(ys[0] > terrain.heightAt(inLake.x, inLake.z) + 2);
-  assert.equal(meshes.water.indices.length, 6);
+  const project = createTileProjector(tile, 4096, terrain.projection);
+  const lake = { ...project(900, 900) };
+  assert.equal(ground.classAt(lake.x, lake.z), classes.index("water"));
+  const surface = createSurface(terrain, VIRTUAL_WORLD.surface, { osm: { ground, classes: OSM.ground } });
+  const inLake = { ...project(500, 500) };
+  assert.equal(surface.placeTrees(inLake.x, inLake.z, 300).count, 0);
+  const color = [0, 0, 0];
+  surface.colorAt(lake.x, lake.z, terrain.sample(lake.x, lake.z, {}), 0, color);
+  assert.ok(color[2] > color[0] && color[2] > color[1], `blue ground ${color}`);
+  // The meshes carry no separate water surface.
+  const meshes = buildOsmMeshes(extracted, tile, { projection: terrain.projection, terrain, config: OSM });
+  assert.deepEqual(Object.keys(meshes).sort(), ["buildings", "cx", "cz", "ribbons"]);
 });
 
 test("meshes: walls face out, roofs face up, buildings never float; ribbons face up and drape", () => {
@@ -445,7 +430,7 @@ test("surface: OSM classes set colors and trees; unloaded areas stay synthetic",
   const classes = createGroundClasses(OSM.ground);
   const terrain = createWorldTerrain(route, VIRTUAL_WORLD.terrain);
   const ground = createOsmGround(terrain.projection, { zoom: 14, cells: 256, unclassified: classes.index("unclassified") });
-  const raster = { cells: 256, classes: new Uint8Array(256 * 256), water: new Uint8Array(256 * 256) };
+  const raster = { cells: 256, classes: new Uint8Array(256 * 256) };
   // West half forest, east half a solid block of buildings.
   fillPolygon(raster.classes, 256, [[0, 0, 2048, 0, 2048, 4096, 0, 4096]], 1 / 16, classes.index("forest") + 1);
   fillPolygon(raster.classes, 256, [[2048, 0, 4096, 0, 4096, 4096, 2048, 4096]], 1 / 16, classes.index("building") + 1);

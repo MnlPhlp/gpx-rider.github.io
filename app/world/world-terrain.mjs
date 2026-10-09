@@ -90,12 +90,7 @@ export function resampleRouteLocal(route, projection, spacing) {
 // still pinned to the GPX and blended into the real ground beside the road
 // (config.real), and no relief is invented; wherever the DEM has no data
 // the route-only synthesis below takes over.
-// `osm` (optional, world-osm-raster.mjs#createOsmGround, filled as tiles
-// arrive): with real ground, OSM water areas are carved osm.carve_meters
-// below the real elevation (bilinear water mask, no detail noise) so the
-// flat water surfaces drawn there never have ground poking through. The road
-// bed still wins over the carve.
-export function createWorldTerrain(route, config, { dem = null, osm = null, waterCarveMeters = 0 } = {}) {
+export function createWorldTerrain(route, config, { dem = null } = {}) {
   const points = Array.isArray(route) ? route.filter((p) => Number.isFinite(Number(p?.lat)) && Number.isFinite(Number(p?.lng))) : [];
   const origin = points.length ? boundsCenter(points) : DEFAULT_ORIGIN;
   const projection = createWorldProjection(origin);
@@ -160,18 +155,13 @@ export function createWorldTerrain(route, config, { dem = null, osm = null, wate
   // road's elevation (roadElevation, NaN beyond the influence radius) and
   // heading (roadDirX/Z), and the local relief amplitude and alpine mix the
   // surface colors key off.
-  // `natural` = true leaves the OSM water carve out (the water surfaces'
-  // own levels are read from the uncarved ground).
-  function sample(x, z, out = {}, natural = false) {
+  function sample(x, z, out = {}) {
     const near = segments.query(x, z, radius, halfWidth, power);
     const reg = regional.at(x, z);
     if (dem) {
       const geo = projection.toGeo(x, z);
       const ground = dem.elevationAt(geo.lat, geo.lng);
-      if (ground !== null && ground !== undefined) {
-        const water = osm && !natural ? osm.waterAt(x, z) : 0;
-        return sampleReal(x, z, near, reg, ground, water, out);
-      }
+      if (ground !== null && ground !== undefined) return sampleReal(x, z, near, reg, ground, out);
     }
     const blended = (near.sumWeightedElevation + backgroundWeight * reg.mean) / (near.sumWeight + backgroundWeight);
     // Inside the bed the ground is exactly the nearest road point's elevation
@@ -218,11 +208,11 @@ export function createWorldTerrain(route, config, { dem = null, osm = null, wate
   // road bed at the GPX elevation, easing into the real ground over
   // real.road_blend_meters beyond a flat real.road_shoulder_meters (cuttings
   // and embankments where the two differ).
-  function sampleReal(x, z, near, reg, ground, water, out) {
+  function sampleReal(x, z, near, reg, ground, out) {
     const distance = near.minDistance < radius ? near.minDistance : Math.max(radius, reg.distance);
     const detailRamp = smoothstep(relief.road_clearance_meters, real.detail_ramp_meters, distance);
     const detail = fbm(noise, x / real.detail_feature_meters, z / real.detail_feature_meters, 3) * real.detail_meters * detailRamp;
-    const natural = ground + detail * (1 - water) - water * waterCarveMeters;
+    const natural = ground + detail;
     const shoulder = halfWidth + real.road_shoulder_meters;
     const bed = near.minDistance < radius
       ? 1 - smoothstep(shoulder, shoulder + real.road_blend_meters, near.minDistance)
@@ -250,9 +240,6 @@ export function createWorldTerrain(route, config, { dem = null, osm = null, wate
   function heightAt(x, z) {
     return sample(x, z, scratch).height;
   }
-  function naturalHeightAt(x, z) {
-    return sample(x, z, scratch, true).height;
-  }
 
   return {
     projection,
@@ -269,7 +256,6 @@ export function createWorldTerrain(route, config, { dem = null, osm = null, wate
     waterLevel,
     sample,
     heightAt,
-    naturalHeightAt,
     heightAtGeo(lat, lng) {
       const local = projection.toLocal(lat, lng);
       return heightAt(local.x, local.z);

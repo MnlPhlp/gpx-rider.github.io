@@ -7,9 +7,10 @@
 // shape the ground from the same data. Tile requests wait until that is done.
 // Then it streams the OpenStreetMap tiles of the route's corridor (nearest to
 // the camera first) without blocking tile requests: each one that arrives is
-// rasterized into the ground classes (colors, trees, water carve) and
+// rasterized into the ground classes (colors, trees; water is a blue
+// ground class) and
 // announced, and the main thread rebuilds the terrain tiles it covers and
-// asks for its building/road/water meshes when the camera comes near.
+// asks for its building/road meshes when the camera comes near.
 // For a city theme (ground: "city", offline) each tile also carries its
 // buildings (world-city.mjs): all of them on near tiles, the skyline on
 // farther ones.
@@ -107,13 +108,7 @@ async function prepareWorld(current, data) {
     current.osmTiles = new Map();
     osm = { ground: current.osmGround, classes: config.osm.ground };
   }
-  if (dem || osm) {
-    terrain = createWorldTerrain(data.route, terrainConfig, {
-      dem,
-      osm: current.osmGround,
-      waterCarveMeters: config.osm?.water.carve_meters ?? 0,
-    });
-  }
+  if (dem) terrain = createWorldTerrain(data.route, terrainConfig, { dem });
   current.terrain = terrain;
   // The synthetic town is the offline city look; real-world styles have OSM.
   current.city = data.ground === "city" && !real ? createCity(terrain, config.city) : null;
@@ -179,7 +174,7 @@ function postOsmMesh(current, key) {
     seed: current.terrain.seed,
   });
   const transfer = [];
-  for (const group of [meshes.buildings, meshes.ribbons, meshes.water]) {
+  for (const group of [meshes.buildings, meshes.ribbons]) {
     for (const array of Object.values(group)) transfer.push(array.buffer);
   }
   self.postMessage({ type: "osm-mesh", worldId: current.id, key, meshes }, transfer);

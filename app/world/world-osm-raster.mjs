@@ -4,20 +4,20 @@
 // priority order (the class list's first entry wins), roads stamped at their
 // width, buildings filled and their outlines traced (so even a footprint
 // smaller than a cell marks the cells it touches — no tree grows inside a
-// house), plus a separate water mask. createOsmGround stitches the tiles into
+// house). Water areas are simply the "water" class: the ground is tinted
+// blue there, no separate surface. createOsmGround stitches the tiles into
 // one sampler over world-local meters. Pure — the tile worker and tests.
 
 import { globalPixel } from "./world-dem.mjs";
 import { metersPerTileUnit } from "./world-osm.mjs";
 
 // Extracted tile → { cells, classes: Uint8Array (class index + 1, 0 = no
-// area), water: Uint8Array (1 = water) }.
+// area) }.
 export function rasterizeOsmTile(extracted, tile, { cells, groundClasses }) {
   const extent = extracted.extent;
   const scale = cells / extent;
   const unitMeters = metersPerTileUnit(tile, extent);
   const classes = new Uint8Array(cells * cells);
-  const water = new Uint8Array(cells * cells);
   const ops = [];
   for (const area of extracted.areas) {
     for (const polygon of area.polygons) ops.push({ cls: area.cls, fill: polygon });
@@ -26,10 +26,7 @@ export function rasterizeOsmTile(extracted, tile, { cells, groundClasses }) {
   const roadClass = groundClasses.index("road");
   const buildingClass = groundClasses.index("building");
   for (const area of extracted.water) {
-    for (const polygon of area.polygons) {
-      ops.push({ cls: waterClass, fill: polygon });
-      fillPolygon(water, cells, polygon, scale, 1);
-    }
+    for (const polygon of area.polygons) ops.push({ cls: waterClass, fill: polygon });
   }
   for (const road of extracted.roads) {
     ops.push({ cls: roadClass, line: road.points, halfWidth: road.width / 2 / unitMeters });
@@ -46,7 +43,7 @@ export function rasterizeOsmTile(extracted, tile, { cells, groundClasses }) {
     if (op.fill) fillPolygon(classes, cells, op.fill, scale, op.cls + 1);
     else stampLine(classes, cells, op.line, scale, op.halfWidth * scale, op.cls + 1);
   }
-  return { cells, classes, water };
+  return { cells, classes };
 }
 
 function closeRing(ring) {
@@ -112,8 +109,7 @@ export function stampLine(grid, cells, line, scale, halfWidth, value) {
 
 // The stitched sampler over world-local meters. classAt(x, z) is the ground
 // class index there, `unclassified` for land no area covers, and -1 where no
-// OSM tile is loaded (the caller falls back to the synthetic surface);
-// waterAt(x, z) is the water mask, bilinear (0..1), 0 outside loaded tiles.
+// OSM tile is loaded (the caller falls back to the synthetic surface).
 // `version` counts the tiles added.
 export function createOsmGround(projection, { zoom, cells, unclassified }) {
   const tiles = new Map();
@@ -138,25 +134,6 @@ export function createOsmGround(projection, { zoom, cells, unclassified }) {
       const r = Math.min(cells - 1, Math.floor(p.y - ty * cells));
       const value = raster.classes[r * cells + c];
       return value ? value - 1 : unclassified;
-    },
-    waterAt(x, z) {
-      if (!tiles.size) return 0;
-      const geo = projection.toGeo(x, z);
-      const p = globalPixel(geo.lat, geo.lng, zoom, cells);
-      const fx = p.x - 0.5;
-      const fy = p.y - 0.5;
-      const x0 = Math.floor(fx);
-      const y0 = Math.floor(fy);
-      const tx = fx - x0;
-      const ty = fy - y0;
-      const at = (gx, gy) => {
-        const raster = tiles.get(`${Math.floor(gx / cells)}/${Math.floor(gy / cells)}`);
-        if (!raster) return 0;
-        return raster.water[(gy - Math.floor(gy / cells) * cells) * cells + (gx - Math.floor(gx / cells) * cells)];
-      };
-      const a = at(x0, y0); const b = at(x0 + 1, y0); const c = at(x0, y0 + 1); const d = at(x0 + 1, y0 + 1);
-      if (!(a | b | c | d)) return 0;
-      return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
     },
   };
   return ground;

@@ -1,4 +1,4 @@
-// Mesh arrays for one OSM tile's buildings, roads/waterways and water areas
+// Mesh arrays for one OSM tile's buildings and roads/waterways
 // (extracted by world-osm.mjs), built in the tile worker and handed to the
 // main thread as transferable typed arrays. Pure apart from earcut (vendored,
 // imported by relative path: module workers don't see the page's import map).
@@ -17,8 +17,6 @@
 //     slope; bends use world-road.mjs's fold-free cross-sections. A bridge
 //     runs straight from its first to its last point's height instead.
 //     Per vertex a kind index: 0 major, 1 minor, 2 path, 3 water.
-//   - Water areas: earcut surfaces, still water flat just below its lowest
-//     shore point, rivers following their banks.
 // Positions are relative to the tile's center (cx, cz), so float32 keeps
 // centimeter precision anywhere in the world.
 
@@ -48,7 +46,6 @@ export function buildOsmMeshes(extracted, tile, { projection, terrain, config, s
     cz,
     buildings: buildBuildings(extracted.buildings, { toLocal, terrain, config, cx, cz, seed, tile }),
     ribbons: buildRibbons(extracted, { toLocal, terrain, config, cx, cz }),
-    water: buildWater(extracted.water, { toLocal, terrain, config, cx, cz }),
   };
 }
 
@@ -208,38 +205,4 @@ function buildRibbons(extracted, { toLocal, terrain, config, cx, cz }) {
     kinds: new Float32Array(kinds),
     indices: new Uint32Array(indices),
   };
-}
-
-function buildWater(waterAreas, { toLocal, terrain, config, cx, cz }) {
-  const sink = config.water.sink_meters;
-  const positions = [];
-  const indices = [];
-  let vertex = 0;
-  for (const area of waterAreas) {
-    // The open sea is the scene's own water plane.
-    if (area.ocean) continue;
-    for (const polygon of area.polygons) {
-      const rings = polygon.map(toLocal);
-      const flat = [];
-      const holes = [];
-      const heights = [];
-      rings.forEach((ring, r) => {
-        if (r > 0) holes.push(flat.length / 2);
-        for (let i = 0; i < ring.length; i += 2) {
-          flat.push(ring[i], ring[i + 1]);
-          heights.push(terrain.naturalHeightAt(ring[i], ring[i + 1]));
-        }
-      });
-      const level = Math.min(...heights);
-      const triangles = earcut(flat, holes);
-      const first = vertex;
-      for (let i = 0; i < heights.length; i++) {
-        const y = (area.still ? level : heights[i]) - sink;
-        positions.push(flat[i * 2] - cx, y, flat[i * 2 + 1] - cz);
-        vertex++;
-      }
-      for (let t = 0; t < triangles.length; t += 3) pushUpward(indices, flat, first, triangles[t], triangles[t + 1], triangles[t + 2]);
-    }
-  }
-  return { positions: new Float32Array(positions), indices: new Uint32Array(indices) };
 }
